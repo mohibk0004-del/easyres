@@ -2,8 +2,8 @@ import sys
 import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QGraphicsDropShadowEffect, QGridLayout,
-                             QComboBox, QLineEdit, QSizePolicy, QMessageBox, QSizeGrip, QSystemTrayIcon, QMenu)
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QSize, pyqtProperty
+                             QComboBox, QLineEdit, QSizePolicy, QMessageBox, QSizeGrip, QSystemTrayIcon, QMenu, QDialog)
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QSize, pyqtProperty, QSettings, QTimer
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QIntValidator, QBrush, QIcon, QPixmap
 
 import resolution
@@ -141,6 +141,63 @@ class PresetCard(QPushButton):
             }
         """)
 
+class TutorialDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(460, 520)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        
+        self.container = QWidget()
+        self.container.setStyleSheet("""
+            QWidget {
+                background-color: #000000;
+                border-radius: 16px;
+                border: 1px solid #1a1a1a;
+            }
+        """)
+        
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(30)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 10)
+        self.container.setGraphicsEffect(shadow)
+        
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+        
+        title = QLabel("Welcome to EasyRes")
+        title.setStyleSheet("color: #f5f5f7; font-size: 18px; font-weight: bold; border: none; background: transparent;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        content = QLabel(
+            "<div style='color: #a1a1a6; font-size: 14px; line-height: 1.6;'>"
+            "<p style='margin-bottom: 14px; color: #f5f5f7; font-size: 15px;'>This app makes setting up <span style='color: #5865F2; font-weight: bold;'>True Stretch</span> for Valorant easier.</p>"
+            "<p style='margin-bottom: 14px;'>Select your preferred monitor in case of a multi-monitor setup. By default, your <span style='color: #f5f5f7; font-weight: bold;'>main monitor</span> is already picked.</p>"
+            "<p><b>1.</b> Disable the monitor from the <span style='color: #5865F2; font-weight: bold;'>Hardware Monitors</span> section to make sure <span style='color: #5865F2; font-weight: bold;'>True Stretch</span> works.</p>"
+            "<p><b>2.</b> Choose a predefined preset or enter a <span style='color: #5865F2; font-weight: bold;'>custom resolution</span>.</p>"
+            "<p><b>3.</b> If you want to go back to your native resolution, use the <span style='color: #f5f5f7; font-weight: bold;'>'Reset to Native (Enable Monitor)'</span> button to restore default settings and enable the monitor at the same time.</p>"
+            "<p><b>4.</b> In case you don't want to enable the monitor for convenience, you can always pick the <span style='color: #f5f5f7; font-weight: bold;'>'Native (Reset)'</span> option from the tray menu.</p>"
+            "</div>"
+        )
+        content.setStyleSheet("border: none; background: transparent;")
+        content.setWordWrap(True)
+        content.setTextFormat(Qt.TextFormat.RichText)
+        
+        btn = ActionButton("Got it!")
+        btn.clicked.connect(self.accept)
+        
+        layout.addWidget(title)
+        layout.addWidget(content)
+        layout.addStretch()
+        layout.addWidget(btn)
+        
+        main_layout.addWidget(self.container)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -154,6 +211,9 @@ class MainWindow(QMainWindow):
         
         self.init_ui()
         self.refresh_display()
+        
+        self.settings = QSettings("EasyRes", "App")
+        QTimer.singleShot(500, self.check_first_run)
         
         # Entrance Animation
         self.setWindowOpacity(0.0)
@@ -214,6 +274,12 @@ class MainWindow(QMainWindow):
         title_label = QLabel("EasyRes")
         title_label.setStyleSheet("color: #86868b; font-weight: bold; font-size: 13px; border: none; background: transparent;")
         
+        help_btn = QPushButton("?")
+        help_btn.setFixedSize(28, 28)
+        help_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        help_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 14px; font-weight: bold;} QPushButton:hover { color: white; }")
+        help_btn.clicked.connect(self.show_tutorial)
+        
         min_btn = QPushButton("—")
         min_btn.setFixedSize(28, 28)
         min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -230,6 +296,7 @@ class MainWindow(QMainWindow):
         title_layout.addSpacing(10)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
+        title_layout.addWidget(help_btn)
         title_layout.addWidget(min_btn)
         title_layout.addWidget(close_btn)
         
@@ -307,7 +374,7 @@ class MainWindow(QMainWindow):
         custom_lbl.setStyleSheet("color: #86868b; font-size: 11px; font-weight: bold;")
         
         exp_lbl = QLabel("EXPERIMENTAL")
-        exp_lbl.setStyleSheet("background-color: rgba(88, 101, 242, 0.2); color: #5865F2; font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+        exp_lbl.setStyleSheet("background-color: rgba(237, 66, 69, 0.2); color: #ed4245; font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
         
         custom_header.addWidget(custom_lbl)
         custom_header.addWidget(exp_lbl)
@@ -428,7 +495,7 @@ class MainWindow(QMainWindow):
         content_layout.addStretch()
         
         # Reset Button
-        reset_btn = ActionButton("Reset to Native")
+        reset_btn = ActionButton("Reset to Native (Enable Monitor)")
         reset_btn.clicked.connect(self.reset_res)
         content_layout.addWidget(reset_btn)
         
@@ -472,8 +539,13 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(quit_app)
         
         self.tray_icon.setContextMenu(self.tray_menu)
+        self.tray_icon.activated.connect(self.on_tray_activated)
         self.tray_icon.show()
-        
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.showNormal()
+            self.activateWindow()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'grip'):
@@ -515,8 +587,18 @@ class MainWindow(QMainWindow):
             pass
 
     def reset_res(self):
+        resolution.set_monitor_state(self.get_dev_name(), True)
         if resolution.reset_resolution(self.get_dev_name()):
             self.refresh_display()
+
+    def check_first_run(self):
+        if not self.settings.value("tutorial_shown", False, type=bool):
+            self.show_tutorial()
+            self.settings.setValue("tutorial_shown", True)
+
+    def show_tutorial(self):
+        dialog = TutorialDialog(self)
+        dialog.exec()
 
     def title_press(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
