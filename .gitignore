@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.agents/
+.claude/
+__pycache__/
+*.pyc
+*.exe
+crash.log
+out.txt
+.venv/
+.env
