@@ -69,6 +69,7 @@ def get_displays():
             displays.append({
                 "name": dd.DeviceName,
                 "string": dd.DeviceString,
+                "device_id": dd.DeviceID,
                 "primary": bool(dd.StateFlags & 4),
                 "enabled": bool(dd.StateFlags & 1)
             })
