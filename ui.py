@@ -81,20 +81,21 @@ class ActionButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
-                border: 1px solid #1a1a1a;
+                background-color: #1a1a1a;
+                border: 1px solid #2a2a2b;
                 border-radius: 12px;
-                color: #86868b;
+                color: #f5f5f7;
                 font-size: 13px;
-                font-weight: 500;
+                font-weight: 600;
                 padding: 10px;
             }
             QPushButton:hover {
-                background-color: #0a0a0a;
-                border: 1px solid #1a1a1a;
+                background-color: #2a2a2b;
+                border: 1px solid #3a3a3c;
             }
             QPushButton:pressed {
                 background-color: #5865F2;
+                border: 1px solid #5865F2;
                 padding: 12px 8px 8px 12px;
             }
         """)
@@ -129,15 +130,17 @@ class PresetCard(QPushButton):
         
         self.setStyleSheet("""
             PresetCard {
-                background-color: #000000;
-                border: 1px solid #1a1a1a;
+                background-color: #121212;
+                border: 1px solid #2a2a2b;
                 border-radius: 12px;
             }
             PresetCard:hover {
-                background-color: #0a0a0a;
+                background-color: #1a1a1a;
+                border: 1px solid #3a3a3c;
             }
             PresetCard:pressed {
                 background-color: #5865F2;
+                border: 1px solid #5865F2;
             }
         """)
 
@@ -146,7 +149,7 @@ class TutorialDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(460, 520)
+        self.setFixedSize(460, 560)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -178,10 +181,11 @@ class TutorialDialog(QDialog):
             "<div style='color: #a1a1a6; font-size: 14px; line-height: 1.6;'>"
             "<p style='margin-bottom: 14px; color: #f5f5f7; font-size: 15px;'>This app makes setting up <span style='color: #5865F2; font-weight: bold;'>True Stretch</span> for Valorant easier.</p>"
             "<p style='margin-bottom: 14px;'>Select your preferred monitor in case of a multi-monitor setup. By default, your <span style='color: #f5f5f7; font-weight: bold;'>main monitor</span> is already picked.</p>"
-            "<p><b>1.</b> Disable the monitor from the <span style='color: #5865F2; font-weight: bold;'>Hardware Monitors</span> section to make sure <span style='color: #5865F2; font-weight: bold;'>True Stretch</span> works.</p>"
-            "<p><b>2.</b> Choose a predefined preset or enter a <span style='color: #5865F2; font-weight: bold;'>custom resolution</span>.</p>"
-            "<p><b>3.</b> If you want to go back to your native resolution, use the <span style='color: #f5f5f7; font-weight: bold;'>'Reset to Native (Enable Monitor)'</span> button to restore default settings and enable the monitor at the same time.</p>"
-            "<p><b>4.</b> In case you don't want to enable the monitor for convenience, you can always pick the <span style='color: #f5f5f7; font-weight: bold;'>'Native (Reset)'</span> option from the tray menu.</p>"
+            "<p><b>1.</b> Make Valorant <span style='color: #f5f5f7; font-weight: bold;'>Windowed Fullscreen</span>.</p>"
+            "<p><b>2.</b> Disable the monitor from the <span style='color: #5865F2; font-weight: bold;'>Hardware Monitors</span> section to make sure <span style='color: #5865F2; font-weight: bold;'>True Stretch</span> works.</p>"
+            "<p><b>3.</b> Choose a predefined preset or enter a <span style='color: #5865F2; font-weight: bold;'>custom resolution</span>.</p>"
+            "<p><b>4.</b> If you want to go back to your native resolution, use the <span style='color: #f5f5f7; font-weight: bold;'>'Reset to Native (Enable Monitor)'</span> button to restore default settings and enable the monitor at the same time.</p>"
+            "<p><b>5.</b> In case you don't want to enable the monitor for convenience, you can always pick the <span style='color: #f5f5f7; font-weight: bold;'>'Native (Reset)'</span> option from the tray menu.</p>"
             "</div>"
         )
         content.setStyleSheet("border: none; background: transparent;")
