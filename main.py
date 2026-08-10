@@ -1,11 +1,20 @@
 import sys
+import os
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QIcon
 from ui import MainWindow
 
 def main():
     import ctypes
     from PyQt6.QtWidgets import QMessageBox
     app = QApplication(sys.argv)
+    
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    icon_path = os.path.join(base_path, "icon.png")
+    app.setWindowIcon(QIcon(icon_path))
     
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "EasyRes_SingleInstance")
     if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS

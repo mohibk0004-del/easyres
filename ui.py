@@ -1,4 +1,5 @@
 import sys
+import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QGraphicsDropShadowEffect, QGridLayout,
                              QComboBox, QLineEdit, QSizePolicy, QMessageBox, QSizeGrip, QSystemTrayIcon, QMenu)
@@ -440,15 +441,12 @@ class MainWindow(QMainWindow):
         
         # System Tray Menu
         self.tray_icon = QSystemTrayIcon(self)
-        pixmap = QPixmap(32, 32)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pixmap)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QBrush(QColor("#5865F2"))) # Discord Blurple
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(4, 4, 24, 24, 6, 6)
-        p.end()
-        self.tray_icon.setIcon(QIcon(pixmap))
+        try:
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(base_path, "icon.png")
+        self.tray_icon.setIcon(QIcon(icon_path))
         
         self.tray_menu = QMenu()
         show_action = self.tray_menu.addAction("Show EasyRes")
