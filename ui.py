@@ -50,7 +50,7 @@ class AppleToggle(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # Draw background
-        bg_color = QColor("#34c759") if self._checked else QColor("rgba(255,255,255,0.1)")
+        bg_color = QColor("#5865F2") if self._checked else QColor("rgba(255,255,255,0.1)")
         
         # When animating, we can crossfade color, but simple solid works because handle covers it
         if self.anim.state() == QPropertyAnimation.State.Running:
@@ -81,7 +81,7 @@ class ActionButton(QPushButton):
         self.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid #1e1f22;
                 border-radius: 12px;
                 color: #86868b;
                 font-size: 13px;
@@ -89,11 +89,11 @@ class ActionButton(QPushButton):
                 padding: 10px;
             }
             QPushButton:hover {
-                background-color: #1c1c1e;
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                background-color: #2b2d31;
+                border: 1px solid #1e1f22;
             }
             QPushButton:pressed {
-                background-color: #122a47;
+                background-color: #5865F2;
                 padding: 12px 8px 8px 12px;
             }
         """)
@@ -128,15 +128,15 @@ class PresetCard(QPushButton):
         
         self.setStyleSheet("""
             PresetCard {
-                background-color: #1c1c1e;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                background-color: #313338;
+                border: 1px solid #1e1f22;
                 border-radius: 12px;
             }
             PresetCard:hover {
-                background-color: #242426;
+                background-color: #2b2d31;
             }
             PresetCard:pressed {
-                background-color: #122a47;
+                background-color: #5865F2;
             }
         """)
 
@@ -169,7 +169,7 @@ class MainWindow(QMainWindow):
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QBrush(QColor("#ff9f0a")))
+        painter.setBrush(QBrush(QColor("#5865F2"))) # Discord Blurple
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(0, 0, 16, 16, 4, 4)
         painter.end()
@@ -206,9 +206,9 @@ class MainWindow(QMainWindow):
         self.container.setObjectName("Container")
         self.container.setStyleSheet("""
             QWidget#Container {
-                background-color: #0d0d0d;
+                background-color: #313338;
                 border-radius: 16px;
-                border: 1px solid rgba(255, 255, 255, 0.15);
+                border: 1px solid #1e1f22;
             }
         """)
         
@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         # Title Bar
         title_bar = QWidget()
         title_bar.setFixedHeight(42)
-        title_bar.setStyleSheet("background-color: rgba(28, 28, 30, 0.9); border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);")
+        title_bar.setStyleSheet("background-color: #2b2d31; border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom: 1px solid #1e1f22;")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(16, 0, 16, 0)
         
@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
         logo = QLabel("E")
         logo.setFixedSize(18, 18)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setStyleSheet("background-color: #ff9f0a; color: white; border-radius: 4px; font-weight: bold; font-size: 11px;")
+        logo.setStyleSheet("background-color: #5865F2; color: white; border-radius: 4px; font-weight: bold; font-size: 11px;")
         
         title_label = QLabel("EasyRes")
         title_label.setStyleSheet("color: #86868b; font-weight: bold; font-size: 13px; border: none; background: transparent;")
@@ -276,8 +276,8 @@ class MainWindow(QMainWindow):
         self.mon_combo = QComboBox()
         self.mon_combo.setStyleSheet("""
             QComboBox {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                background-color: #1e1f22;
+                border: 1px solid #1e1f22;
                 border-radius: 6px;
                 color: white;
                 padding: 4px 8px;
@@ -300,7 +300,7 @@ class MainWindow(QMainWindow):
         
         # Current Display
         curr_box = QWidget()
-        curr_box.setStyleSheet("background-color: #1c1c1e; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1);")
+        curr_box.setStyleSheet("background-color: #2b2d31; border-radius: 16px; border: 1px solid #1e1f22;")
         curr_layout = QVBoxLayout(curr_box)
         curr_layout.setContentsMargins(20, 20, 20, 20)
         
@@ -313,7 +313,7 @@ class MainWindow(QMainWindow):
         self.curr_res.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.curr_hz = QLabel("144 Hz")
-        self.curr_hz.setStyleSheet("color: #ff9f0a; font-size: 15px; font-weight: bold;")
+        self.curr_hz.setStyleSheet("color: #5865F2; font-size: 15px; font-weight: bold;")
         self.curr_hz.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         curr_layout.addWidget(lbl1)
@@ -331,7 +331,7 @@ class MainWindow(QMainWindow):
         custom_lbl.setStyleSheet("color: #86868b; font-size: 11px; font-weight: bold;")
         
         exp_lbl = QLabel("EXPERIMENTAL")
-        exp_lbl.setStyleSheet("background-color: rgba(255, 159, 10, 0.2); color: #ff9f0a; font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+        exp_lbl.setStyleSheet("background-color: rgba(88, 101, 242, 0.2); color: #5865F2; font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
         
         custom_header.addWidget(custom_lbl)
         custom_header.addWidget(exp_lbl)
@@ -353,16 +353,16 @@ class MainWindow(QMainWindow):
         for inp in (self.inp_w, self.inp_h):
             inp.setStyleSheet("""
                 QLineEdit {
-                    background-color: rgba(255, 255, 255, 0.05);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    background-color: #1e1f22;
+                    border: 1px solid #1e1f22;
                     border-radius: 8px;
                     color: white;
                     padding: 8px;
                     font-size: 14px;
                 }
                 QLineEdit:focus {
-                    border: 1px solid #ff9f0a;
-                    background-color: rgba(255, 255, 255, 0.1);
+                    border: 1px solid #5865F2;
+                    background-color: #1e1f22;
                 }
             """)
             
@@ -417,7 +417,7 @@ class MainWindow(QMainWindow):
             content_layout.addWidget(no_hw)
         else:
             hw_box = QWidget()
-            hw_box.setStyleSheet("background-color: #1c1c1e; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);")
+            hw_box.setStyleSheet("background-color: #2b2d31; border-radius: 12px; border: 1px solid #1e1f22;")
             hw_layout = QVBoxLayout(hw_box)
             hw_layout.setContentsMargins(15, 10, 15, 10)
             
@@ -469,7 +469,7 @@ class MainWindow(QMainWindow):
         pixmap.fill(Qt.GlobalColor.transparent)
         p = QPainter(pixmap)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QBrush(QColor("#ff9f0a")))
+        p.setBrush(QBrush(QColor("#5865F2"))) # Discord Blurple
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(4, 4, 24, 24, 6, 6)
         p.end()
@@ -491,7 +491,12 @@ class MainWindow(QMainWindow):
             
         self.tray_menu.addSeparator()
         quit_action = self.tray_menu.addAction("Quit")
-        quit_action.triggered.connect(QApplication.instance().quit)
+        
+        def quit_app():
+            self.tray_icon.hide()
+            QApplication.instance().quit()
+            
+        quit_action.triggered.connect(quit_app)
         
         self.tray_icon.setContextMenu(self.tray_menu)
         self.tray_icon.show()
