@@ -66,10 +66,17 @@ def get_displays():
             break
         # Only attached displays (or previously attached in registry)
         if dd.StateFlags & 1 or dd.StateFlags & 8: 
+            mon_dd = DISPLAY_DEVICEW()
+            mon_dd.cb = ctypes.sizeof(DISPLAY_DEVICEW)
+            if user32.EnumDisplayDevicesW(dd.DeviceName, 0, ctypes.byref(mon_dd), 0):
+                monitor_id = mon_dd.DeviceID
+            else:
+                monitor_id = dd.DeviceID
+
             displays.append({
                 "name": dd.DeviceName,
                 "string": dd.DeviceString,
-                "device_id": dd.DeviceID,
+                "device_id": monitor_id,
                 "primary": bool(dd.StateFlags & 4),
                 "enabled": bool(dd.StateFlags & 1)
             })
@@ -86,6 +93,29 @@ def get_current_resolution(device_name=None):
             "hz": dm.dmDisplayFrequency
         }
     return None
+
+def get_supported_resolutions(device_name=None):
+    modes = set()
+    i = 0
+    while True:
+        dm = DEVMODEW()
+        dm.dmSize = ctypes.sizeof(DEVMODEW)
+        if not user32.EnumDisplaySettingsW(device_name, i, ctypes.byref(dm)):
+            break
+        w, h = dm.dmPelsWidth, dm.dmPelsHeight
+        if h > 0:
+            ratio = w / h
+            # Only include 4:3 (1.333) and 5:4 (1.25) ratios
+            if abs(ratio - 4/3) < 0.05 or abs(ratio - 5/4) < 0.05:
+                modes.add((w, h))
+        i += 1
+    
+    # Format and label them
+    result = []
+    for w, h in sorted(list(modes), key=lambda x: x[0]*x[1], reverse=True):
+        ratio_str = "4:3" if abs((w/h) - 4/3) < 0.05 else "5:4"
+        result.append((w, h, ratio_str, "Native", False))
+    return result
 
 def set_resolution(width, height, device_name=None):
     best_dm = None

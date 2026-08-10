@@ -662,11 +662,7 @@ class MainWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
                 
-        presets_data = [
-            (1920, 1080, "16:9", "Native", False), (1680, 1050, "16:10", "Slight Stretch", False),
-            (1600, 900, "16:9", "Compact", False), (1440, 1080, "4:3", "Popular", False),
-            (1280, 1024, "5:4", "CS Classic", False), (1280, 960, "4:3", "Classic", False)
-        ]
+        presets_data = resolution.get_supported_resolutions(self.get_dev_name())
         
         # Load custom ones
         customs = self.settings.value("custom_resolutions", [])
@@ -722,10 +718,20 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Could not detect active monitor instances.")
             return
             
-        target_id = dev_id if dev_id in active_ids else active_ids[0]
+        target_id = None
+        hw_id = dev_id.split('\\')[1] if dev_id and '\\' in dev_id else None
+        if hw_id:
+            for aid in active_ids:
+                if f"DISPLAY\\{hw_id}" in aid:
+                    target_id = aid
+                    break
+                    
+        if not target_id:
+            target_id = active_ids[0]
+            
         curr_edid = edid.get_edid(target_id)
         if not curr_edid:
-            QMessageBox.warning(self, "Error", "Failed to read EDID from the registry.")
+            QMessageBox.warning(self, "Error", f"Failed to read EDID from the registry for target: {target_id}.")
             return
             
         hz = 144

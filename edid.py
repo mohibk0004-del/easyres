@@ -86,7 +86,7 @@ def get_active_monitor_device_ids():
     setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
     setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
 
-    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e968-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
+    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e96e-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
     device = SP_DEVINFO_DATA()
     device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
 
@@ -123,7 +123,7 @@ def get_edid(device_id):
     setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
     setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
 
-    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e968-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
+    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e96e-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
     device = SP_DEVINFO_DATA()
     device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
 
@@ -170,7 +170,7 @@ def set_edid(device_id, edid_bytes):
     setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
     setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
 
-    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e968-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
+    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e96e-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
     device = SP_DEVINFO_DATA()
     device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
 
