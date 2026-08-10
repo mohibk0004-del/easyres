@@ -133,7 +133,7 @@ import subprocess
 def get_hardware_monitors():
     # Use pnputil to get hardware level monitor devices
     try:
-        result = subprocess.run(["pnputil", "/enum-devices", "/class", "Monitor"], 
+        result = subprocess.run(["pnputil", "/enum-devices", "/class", "Monitor", "/connected"], 
                                 capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
         monitors = []
         current_mon = {}
