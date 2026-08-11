@@ -6,6 +6,20 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QLineEdit, QSizePolicy, QMessageBox, QSizeGrip, QSystemTrayIcon, QMenu, QDialog, QScrollArea, QFrame, QCheckBox)
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QSize, pyqtProperty, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QIntValidator, QBrush, QIcon, QPixmap
+import json
+import threading
+import urllib.request
+import webbrowser
+
+APP_VERSION = "2.1.1"
+
+def is_newer_version(latest, current):
+    try:
+        l_parts = [int(x) for x in latest.split('.')]
+        c_parts = [int(x) for x in current.split('.')]
+        return l_parts > c_parts
+    except:
+        return latest != current
 
 import resolution
 import edid
@@ -170,7 +184,7 @@ class SettingsDialog(QDialog):
         self.settings = settings
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(400, 390)
+        self.setFixedSize(400, 480)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
@@ -205,6 +219,18 @@ class SettingsDialog(QDialog):
         row1.addWidget(self.tgl_tray)
         layout.addLayout(row1)
         
+        row1_5 = QHBoxLayout()
+        lbl1_5 = QLabel("Ask before closing")
+        lbl1_5.setStyleSheet("color: white; font-size: 13px; font-weight: 500; border: none;")
+        self.tgl_ask_close = AppleToggle()
+        ask = not self.settings.value("dont_ask_tray_close", False, type=bool) and not self.settings.value("minimize_to_tray", False, type=bool)
+        self.tgl_ask_close.setChecked(ask)
+        self.tgl_ask_close.toggled = self.on_ask_close_toggle
+        row1_5.addWidget(lbl1_5)
+        row1_5.addStretch()
+        row1_5.addWidget(self.tgl_ask_close)
+        layout.addLayout(row1_5)
+        
         row2 = QHBoxLayout()
         lbl2 = QLabel("Run on Windows Startup")
         lbl2.setStyleSheet("color: white; font-size: 13px; font-weight: 500; border: none;")
@@ -238,6 +264,14 @@ class SettingsDialog(QDialog):
         
         layout.addStretch()
         
+        row5 = QHBoxLayout()
+        btn_update = ActionButton("Check for Updates")
+        btn_update.clicked.connect(self.check_for_updates)
+        row5.addWidget(btn_update)
+        row5.addStretch()
+        layout.addLayout(row5)
+        
+        layout.addSpacing(10)
         btn = ActionButton("Close")
         btn.clicked.connect(self.accept)
         layout.addWidget(btn)
@@ -246,7 +280,37 @@ class SettingsDialog(QDialog):
 
     def on_tray_toggle(self):
         self.settings.setValue("minimize_to_tray", self.tgl_tray.isChecked())
-        
+        if self.tgl_tray.isChecked():
+            self.settings.setValue("dont_ask_tray_close", False)
+            self.tgl_ask_close.setChecked(False)
+
+    def on_ask_close_toggle(self):
+        if self.tgl_ask_close.isChecked():
+            self.settings.setValue("minimize_to_tray", False)
+            self.settings.setValue("dont_ask_tray_close", False)
+            self.tgl_tray.setChecked(False)
+        else:
+            self.settings.setValue("dont_ask_tray_close", True)
+            self.settings.setValue("minimize_to_tray", False)
+            self.tgl_tray.setChecked(False)
+
+    def check_for_updates(self):
+        try:
+            req = urllib.request.Request("https://api.github.com/repos/mohibk0004-del/easyres/releases/latest")
+            req.add_header('User-Agent', 'EasyRes-App')
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                latest_version = data.get("tag_name", "").lstrip("v")
+                
+                if latest_version and is_newer_version(latest_version, APP_VERSION):
+                    reply = QMessageBox.question(self, "Update Available", f"Version {latest_version} is available. You are using {APP_VERSION}.\n\nDo you want to download the update?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                    if reply == QMessageBox.StandardButton.Yes:
+                        webbrowser.open("https://github.com/mohibk0004-del/easyres/releases/latest")
+                else:
+                    QMessageBox.information(self, "Up to Date", "You are using the latest version of EasyRes.")
+        except Exception as e:
+            QMessageBox.warning(self, "Update Check Failed", f"Could not check for updates.")
+
     def restore_hidden_presets(self):
         self.settings.setValue("hidden_presets", [])
         QMessageBox.information(self, "Success", "Hidden presets restored.")
@@ -336,6 +400,8 @@ class TutorialDialog(QDialog):
         main_layout.addWidget(self.container)
 
 class MainWindow(QMainWindow):
+    update_available = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
@@ -355,6 +421,8 @@ class MainWindow(QMainWindow):
         self.load_presets()
         
         QTimer.singleShot(500, self.check_first_run)
+        self.update_available.connect(self.show_update_notification)
+        threading.Thread(target=self.check_for_updates_background, daemon=True).start()
         
         self.setWindowOpacity(0.0)
         self.opacity_anim = QPropertyAnimation(self, b"windowOpacity")
@@ -377,18 +445,53 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self.settings, self)
         dlg.exec()
 
+    def check_for_updates_background(self):
+        try:
+            req = urllib.request.Request("https://api.github.com/repos/mohibk0004-del/easyres/releases/latest")
+            req.add_header('User-Agent', 'EasyRes-App')
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                latest_version = data.get("tag_name", "").lstrip("v")
+                if latest_version and is_newer_version(latest_version, APP_VERSION):
+                    self.update_available.emit(latest_version)
+        except:
+            pass
+
+    def show_update_notification(self, version):
+        self.update_btn = QPushButton("! Update Available")
+        self.update_btn.setFixedHeight(20)
+        self.update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_btn.setStyleSheet("QPushButton { background-color: #ed4245; color: white; border-radius: 10px; font-weight: bold; font-size: 11px; padding-left: 8px; padding-right: 8px;} QPushButton:hover { background-color: #f05355; }")
+        self.update_btn.clicked.connect(lambda: webbrowser.open("https://github.com/mohibk0004-del/easyres/releases/latest"))
+        self.title_layout.insertWidget(self.title_layout.indexOf(self.settings_btn), self.update_btn)
+
+
     def closeEvent(self, event):
         if self.settings.value("minimize_to_tray", False, type=bool):
             event.ignore()
             self.hide()
+        elif self.settings.value("dont_ask_tray_close", False, type=bool):
+            self.tray_icon.hide()
+            QApplication.instance().quit()
         else:
-            reply = QMessageBox.question(self, "EasyRes", 
-                                         "Do you want to minimize to the system tray instead of closing?",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("EasyRes")
+            msg_box.setText("Do you want to minimize to the system tray instead of closing?")
+            msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
+            msg_box.setStyleSheet("QMessageBox { background-color: #000000; color: white; } QLabel { color: white; } QPushButton { background-color: #1a1a1a; color: white; border: 1px solid #2a2a2b; padding: 5px 15px; border-radius: 6px; } QPushButton:hover { background-color: #2a2a2b; } QCheckBox { color: white; }")
+            
+            cb = QCheckBox("Don't ask again")
+            msg_box.setCheckBox(cb)
+            
+            reply = msg_box.exec()
             if reply == QMessageBox.StandardButton.Yes:
+                if cb.isChecked():
+                    self.settings.setValue("minimize_to_tray", True)
                 event.ignore()
                 self.hide()
             elif reply == QMessageBox.StandardButton.No:
+                if cb.isChecked():
+                    self.settings.setValue("dont_ask_tray_close", True)
                 self.tray_icon.hide()
                 QApplication.instance().quit()
             else:
@@ -424,22 +527,28 @@ class MainWindow(QMainWindow):
         title_bar = QWidget()
         title_bar.setFixedHeight(42)
         title_bar.setStyleSheet("background-color: #0a0a0a; border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom: 1px solid #1a1a1a;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(16, 0, 16, 0)
+        self.title_layout = QHBoxLayout(title_bar)
+        self.title_layout.setContentsMargins(16, 0, 16, 0)
         
-        logo = QLabel("E")
+        logo = QLabel()
         logo.setFixedSize(18, 18)
+        try:
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(base_path, "icon.png")
+        pixmap = QPixmap(icon_path).scaled(18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        logo.setPixmap(pixmap)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setStyleSheet("background-color: #5865F2; color: white; border-radius: 4px; font-weight: bold; font-size: 11px;")
         
         title_label = QLabel("EasyRes")
         title_label.setStyleSheet("color: #86868b; font-weight: bold; font-size: 13px; border: none; background: transparent;")
         
-        settings_btn = QPushButton("⚙")
-        settings_btn.setFixedSize(28, 28)
-        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        settings_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 16px; font-weight: bold;} QPushButton:hover { color: white; }")
-        settings_btn.clicked.connect(self.show_settings)
+        self.settings_btn = QPushButton("⚙")
+        self.settings_btn.setFixedSize(28, 28)
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 16px; font-weight: bold;} QPushButton:hover { color: white; }")
+        self.settings_btn.clicked.connect(self.show_settings)
         
         help_btn = QPushButton("?")
         help_btn.setFixedSize(28, 28)
@@ -465,15 +574,15 @@ class MainWindow(QMainWindow):
         close_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 14px; } QPushButton:hover { color: white; }")
         close_btn.clicked.connect(self.close)
         
-        title_layout.addWidget(logo)
-        title_layout.addSpacing(10)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        title_layout.addWidget(settings_btn)
-        title_layout.addWidget(help_btn)
-        title_layout.addWidget(min_btn)
-        title_layout.addWidget(max_btn)
-        title_layout.addWidget(close_btn)
+        self.title_layout.addWidget(logo)
+        self.title_layout.addSpacing(10)
+        self.title_layout.addWidget(title_label)
+        self.title_layout.addStretch()
+        self.title_layout.addWidget(self.settings_btn)
+        self.title_layout.addWidget(help_btn)
+        self.title_layout.addWidget(min_btn)
+        self.title_layout.addWidget(max_btn)
+        self.title_layout.addWidget(close_btn)
         
         title_bar.mousePressEvent = self.title_press
         title_bar.mouseMoveEvent = self.title_move
