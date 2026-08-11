@@ -94,6 +94,19 @@ def get_current_resolution(device_name=None):
         }
     return None
 
+def get_all_resolutions(device_name=None):
+    modes = set()
+    i = 0
+    while True:
+        dm = DEVMODEW()
+        dm.dmSize = ctypes.sizeof(DEVMODEW)
+        if not user32.EnumDisplaySettingsW(device_name, i, ctypes.byref(dm)):
+            break
+        if dm.dmPelsHeight > 0:
+            modes.add((dm.dmPelsWidth, dm.dmPelsHeight))
+        i += 1
+    return sorted(list(modes), key=lambda x: x[0]*x[1], reverse=True)
+
 def get_supported_resolutions(device_name=None):
     modes = set()
     i = 0
@@ -114,7 +127,7 @@ def get_supported_resolutions(device_name=None):
     result = []
     for w, h in sorted(list(modes), key=lambda x: x[0]*x[1], reverse=True):
         ratio_str = "4:3" if abs((w/h) - 4/3) < 0.05 else "5:4"
-        result.append((w, h, ratio_str, "Native", False))
+        result.append((w, h, ratio_str, "", False))
     return result
 
 def set_resolution(width, height, device_name=None):

@@ -3,7 +3,7 @@ import os
 import winreg
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QGraphicsDropShadowEffect, QGridLayout,
-                             QComboBox, QLineEdit, QSizePolicy, QMessageBox, QSizeGrip, QSystemTrayIcon, QMenu, QDialog, QScrollArea, QFrame)
+                             QComboBox, QLineEdit, QSizePolicy, QMessageBox, QSizeGrip, QSystemTrayIcon, QMenu, QDialog, QScrollArea, QFrame, QCheckBox)
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QSize, pyqtProperty, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QIntValidator, QBrush, QIcon, QPixmap
 
@@ -168,7 +168,7 @@ class SettingsDialog(QDialog):
         self.settings = settings
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(400, 300)
+        self.setFixedSize(400, 340)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
@@ -214,6 +214,17 @@ class SettingsDialog(QDialog):
         row2.addWidget(self.tgl_startup)
         layout.addLayout(row2)
         
+        row3 = QHBoxLayout()
+        lbl3 = QLabel("Confirm Resolution Changes")
+        lbl3.setStyleSheet("color: white; font-size: 13px; font-weight: 500; border: none;")
+        self.tgl_confirm = AppleToggle()
+        self.tgl_confirm.setChecked(self.settings.value("ask_apply_res", True, type=bool))
+        self.tgl_confirm.toggled = self.on_confirm_toggle
+        row3.addWidget(lbl3)
+        row3.addStretch()
+        row3.addWidget(self.tgl_confirm)
+        layout.addLayout(row3)
+        
         layout.addStretch()
         
         btn = ActionButton("Close")
@@ -224,6 +235,9 @@ class SettingsDialog(QDialog):
 
     def on_tray_toggle(self):
         self.settings.setValue("minimize_to_tray", self.tgl_tray.isChecked())
+
+    def on_confirm_toggle(self):
+        self.settings.setValue("ask_apply_res", self.tgl_confirm.isChecked())
 
     def on_startup_toggle(self):
         enabled = self.tgl_startup.isChecked()
@@ -309,7 +323,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.resize(720, 680)
+        self.resize(720, 850)
         self.setMinimumSize(600, 500)
         self.offset = None
         self.displays = resolution.get_displays()
@@ -500,10 +514,23 @@ class MainWindow(QMainWindow):
         body_layout.addWidget(curr_box)
         
         # Add Custom Res form
+        custom_res_header_layout = QHBoxLayout()
+        lbl_custom_res = QLabel("CREATE CUSTOM RESOLUTION")
+        lbl_custom_res.setStyleSheet("color: #86868b; font-size: 11px; font-weight: bold; margin-top: 10px;")
+        lbl_experimental = QLabel("EXPERIMENTAL")
+        lbl_experimental.setStyleSheet("color: #ed4245; font-size: 10px; font-weight: bold; background-color: rgba(237, 66, 69, 0.1); border-radius: 4px; padding: 2px 6px; margin-top: 10px;")
+        custom_res_header_layout.addWidget(lbl_custom_res)
+        custom_res_header_layout.addWidget(lbl_experimental)
+        custom_res_header_layout.addStretch()
+        body_layout.addLayout(custom_res_header_layout)
+
         add_box = QWidget()
         add_box.setStyleSheet("background-color: #0a0a0a; border-radius: 12px; border: 1px solid #1a1a1a; margin-top: 5px;")
-        add_layout = QHBoxLayout(add_box)
+        add_layout = QVBoxLayout(add_box)
+        add_layout.setContentsMargins(15, 15, 15, 15)
+        add_layout.setSpacing(10)
         
+        row1 = QHBoxLayout()
         self.inp_name = QLineEdit()
         self.inp_name.setPlaceholderText("Custom Name")
         
@@ -527,11 +554,32 @@ class MainWindow(QMainWindow):
                 QLineEdit:focus { border: 1px solid #5865F2; }
             """)
             
-        add_layout.addWidget(self.inp_name)
-        add_layout.addWidget(self.inp_rw)
-        add_layout.addWidget(QLabel("×"))
-        add_layout.addWidget(self.inp_rh)
-        add_layout.addWidget(btn_add)
+        row1.addWidget(self.inp_name)
+        row1.addWidget(self.inp_rw)
+        row1.addWidget(QLabel("×"))
+        row1.addWidget(self.inp_rh)
+        row1.addWidget(btn_add)
+        add_layout.addLayout(row1)
+        
+        row2 = QHBoxLayout()
+        lbl_pc = QLabel("Or add existing:")
+        lbl_pc.setStyleSheet("color: #86868b; font-size: 12px;")
+        
+        self.pc_res_combo = QComboBox()
+        self.pc_res_combo.setStyleSheet("""
+            QComboBox { background-color: #121212; border: 1px solid #2a2a2b; border-radius: 8px; color: white; padding: 4px 8px; font-size: 12px; }
+            QComboBox::drop-down { border: none; }
+        """)
+        
+        btn_add_pc = ActionButton("Add")
+        btn_add_pc.setFixedWidth(60)
+        btn_add_pc.clicked.connect(self.add_pc_resolution)
+        
+        row2.addWidget(lbl_pc)
+        row2.addWidget(self.pc_res_combo, 1)
+        row2.addWidget(btn_add_pc)
+        add_layout.addLayout(row2)
+        
         body_layout.addWidget(add_box)
 
         # Presets Label
@@ -739,6 +787,7 @@ class MainWindow(QMainWindow):
         if info and info['hz'] > 0:
             hz = info['hz']
             
+        driver_restarted = False
         # Check if already injected
         if not edid.is_resolution_injected(curr_edid, w_int, h_int, hz):
             new_edid = edid.inject_resolution(curr_edid, w_int, h_int, hz)
@@ -748,6 +797,7 @@ class MainWindow(QMainWindow):
                 
             if edid.set_edid(target_id, new_edid):
                 driver.restart_graphics_driver()
+                driver_restarted = True
             else:
                 QMessageBox.warning(self, "Error", "Failed to write EDID override. Are you running as Admin?")
                 return
@@ -760,7 +810,10 @@ class MainWindow(QMainWindow):
         self.inp_rw.clear()
         self.inp_rh.clear()
         
-        self.load_presets()
+        if driver_restarted:
+            QTimer.singleShot(4000, self.load_presets)
+        else:
+            self.load_presets()
 
     def delete_custom_resolution(self, name):
         reply = QMessageBox.question(self, "Delete Custom Resolution", 
@@ -773,11 +826,23 @@ class MainWindow(QMainWindow):
             self.load_presets()
 
     def change_res(self, w, h):
-        reply = QMessageBox.question(self, "Apply Resolution", 
-                                     f"Are you sure you want to apply {w}x{h}?\n\nIf your monitor does not support this resolution, the screen may go black for 15 seconds before reverting (or you might need to use the system tray to reset it).\n\nProceed?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply != QMessageBox.StandardButton.Yes:
-            return
+        ask_confirm = self.settings.value("ask_apply_res", True, type=bool)
+        if ask_confirm:
+            cb = QCheckBox("Don't ask me again")
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Apply Resolution")
+            msg.setText(f"Are you sure you want to apply {w}x{h}?\n\nIf your monitor does not support this resolution, the screen may go black for 15 seconds before reverting (or you might need to use the system tray to reset it).\n\nProceed?")
+            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+            msg.setCheckBox(cb)
+            
+            reply = msg.exec()
+            
+            if cb.isChecked():
+                self.settings.setValue("ask_apply_res", False)
+                
+            if reply != QMessageBox.StandardButton.Yes:
+                return
             
         if resolution.set_resolution(w, h, self.get_dev_name()):
             self.refresh_display()
@@ -816,4 +881,29 @@ class MainWindow(QMainWindow):
         if info:
             self.curr_res.setText(f"{info['width']} × {info['height']}")
             self.curr_hz.setText(f"{info['hz']} Hz")
+        self.populate_pc_resolutions()
+
+    def populate_pc_resolutions(self):
+        if not hasattr(self, 'pc_res_combo'): return
+        self.pc_res_combo.clear()
+        dev = self.get_dev_name()
+        if not dev: return
+        modes = resolution.get_all_resolutions(dev)
+        for w, h in modes:
+            self.pc_res_combo.addItem(f"{w} × {h}", (w, h))
+
+    def add_pc_resolution(self):
+        data = self.pc_res_combo.currentData()
+        if not data: return
+        w, h = data
+        name = f"{w}x{h} (PC)"
+        resolutions = self.settings.value("custom_resolutions", [])
+        for r in resolutions:
+            if r['w'] == w and r['h'] == h:
+                QMessageBox.warning(self, "Error", "This resolution is already in presets.")
+                return
+                
+        resolutions.append({'name': name, 'w': w, 'h': h})
+        self.settings.setValue("custom_resolutions", resolutions)
+        self.load_presets()
 
