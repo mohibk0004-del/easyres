@@ -98,14 +98,15 @@ class ActionButton(QPushButton):
         """)
 
 class PresetCard(QPushButton):
-    delete_requested = pyqtSignal(str)
+    delete_requested = pyqtSignal(str, int, int, bool)
 
-    def __init__(self, width, height, ratio, label, is_custom=False, parent=None):
+    def __init__(self, width, height, ratio, label, is_custom=False, hz=None, parent=None):
         super().__init__(parent)
         self.res_width = width
         self.res_height = height
         self.is_custom = is_custom
         self.label_text = label
+        self.hz = hz
         
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedSize(124, 76)
@@ -114,7 +115,8 @@ class PresetCard(QPushButton):
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(2)
         
-        res_label = QLabel(f"{width} × {height}")
+        hz_text = f" @ {hz}Hz" if hz else ""
+        res_label = QLabel(f"{width} × {height}{hz_text}")
         res_label.setStyleSheet("color: #f5f5f7; font-size: 13px; font-weight: 600; border: none; background: transparent;")
         res_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
@@ -150,17 +152,17 @@ class PresetCard(QPushButton):
         """)
 
     def contextMenuEvent(self, event):
-        if self.is_custom:
-            menu = QMenu(self)
-            menu.setStyleSheet("""
-                QMenu { background-color: #1a1a1a; color: white; border: 1px solid #333; border-radius: 4px; }
-                QMenu::item { padding: 5px 20px 5px 20px; }
-                QMenu::item:selected { background-color: #ed4245; }
-            """)
-            del_action = menu.addAction("Delete Custom Resolution")
-            action = menu.exec(event.globalPos())
-            if action == del_action:
-                self.delete_requested.emit(self.label_text)
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #1a1a1a; color: white; border: 1px solid #333; border-radius: 4px; }
+            QMenu::item { padding: 5px 20px 5px 20px; }
+            QMenu::item:selected { background-color: #ed4245; }
+        """)
+        action_text = "Delete Custom Resolution" if self.is_custom else "Hide Preset"
+        del_action = menu.addAction(action_text)
+        action = menu.exec(event.globalPos())
+        if action == del_action:
+            self.delete_requested.emit(self.label_text, self.res_width, self.res_height, self.is_custom)
 
 class SettingsDialog(QDialog):
     def __init__(self, settings, parent=None):
@@ -168,7 +170,7 @@ class SettingsDialog(QDialog):
         self.settings = settings
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(400, 340)
+        self.setFixedSize(400, 390)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
@@ -225,6 +227,15 @@ class SettingsDialog(QDialog):
         row3.addWidget(self.tgl_confirm)
         layout.addLayout(row3)
         
+        layout.addSpacing(10)
+        
+        row4 = QHBoxLayout()
+        btn_restore = ActionButton("Restore Hidden Presets")
+        btn_restore.clicked.connect(self.restore_hidden_presets)
+        row4.addWidget(btn_restore)
+        row4.addStretch()
+        layout.addLayout(row4)
+        
         layout.addStretch()
         
         btn = ActionButton("Close")
@@ -235,6 +246,12 @@ class SettingsDialog(QDialog):
 
     def on_tray_toggle(self):
         self.settings.setValue("minimize_to_tray", self.tgl_tray.isChecked())
+        
+    def restore_hidden_presets(self):
+        self.settings.setValue("hidden_presets", [])
+        QMessageBox.information(self, "Success", "Hidden presets restored.")
+        if self.parent():
+            self.parent().load_presets()
 
     def on_confirm_toggle(self):
         self.settings.setValue("ask_apply_res", self.tgl_confirm.isChecked())
@@ -324,7 +341,7 @@ class MainWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.resize(720, 850)
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(400, 400)
         self.offset = None
         self.displays = resolution.get_displays()
         for d in self.displays:
@@ -544,11 +561,16 @@ class MainWindow(QMainWindow):
         self.inp_rh.setValidator(QIntValidator(100, 10000))
         self.inp_rh.setFixedWidth(60)
         
+        self.inp_hz = QLineEdit()
+        self.inp_hz.setPlaceholderText("Hz")
+        self.inp_hz.setValidator(QIntValidator(1, 1000))
+        self.inp_hz.setFixedWidth(40)
+        
         btn_add = ActionButton("Add")
         btn_add.setFixedWidth(60)
         btn_add.clicked.connect(self.add_custom_resolution)
         
-        for inp in (self.inp_name, self.inp_rw, self.inp_rh):
+        for inp in (self.inp_name, self.inp_rw, self.inp_rh, self.inp_hz):
             inp.setStyleSheet("""
                 QLineEdit { background-color: #121212; border: 1px solid #2a2a2b; border-radius: 8px; color: white; padding: 6px; font-size: 12px; }
                 QLineEdit:focus { border: 1px solid #5865F2; }
@@ -558,6 +580,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.inp_rw)
         row1.addWidget(QLabel("×"))
         row1.addWidget(self.inp_rh)
+        row1.addWidget(self.inp_hz)
         row1.addWidget(btn_add)
         add_layout.addLayout(row1)
         
@@ -601,6 +624,7 @@ class MainWindow(QMainWindow):
         body_layout.addWidget(lbl3)
         
         hw_monitors = resolution.get_hardware_monitors()
+        self.hw_toggles = []
         if not hw_monitors:
             no_hw = QLabel("No hardware monitors detected.")
             no_hw.setStyleSheet("color: #86868b; font-size: 12px;")
@@ -629,14 +653,20 @@ class MainWindow(QMainWindow):
                 row_layout.addStretch()
                 row_layout.addWidget(toggle)
                 hw_layout.addLayout(row_layout)
+                self.hw_toggles.append((hw.get("Instance ID", ""), toggle))
             
             body_layout.addWidget(hw_box)
             
         body_layout.addStretch()
         
-        reset_btn = ActionButton("Reset to Native (Enable Monitor)")
-        reset_btn.clicked.connect(self.reset_res)
-        body_layout.addWidget(reset_btn)
+        reset_layout = QHBoxLayout()
+        reset_btn = ActionButton("Reset to Native (Keep Monitors Disabled)")
+        reset_btn.clicked.connect(lambda: self.reset_res(enable_monitors=False))
+        reset_mon_btn = ActionButton("Reset to Native (Enable Monitors)")
+        reset_mon_btn.clicked.connect(lambda: self.reset_res(enable_monitors=True))
+        reset_layout.addWidget(reset_btn)
+        reset_layout.addWidget(reset_mon_btn)
+        body_layout.addLayout(reset_layout)
         
         body_scroll.setWidget(body_widget)
         container_layout.addWidget(body_scroll)
@@ -655,21 +685,8 @@ class MainWindow(QMainWindow):
         self.tray_icon.setIcon(QIcon(icon_path))
         
         self.tray_menu = QMenu()
-        show_action = self.tray_menu.addAction("Show EasyRes")
-        show_action.triggered.connect(self.showNormal)
-        self.tray_menu.addSeparator()
-        
-        native_act = self.tray_menu.addAction("Native (Reset)")
-        native_act.triggered.connect(self.reset_res)
-        self.tray_menu.addSeparator()
-        
-        quit_action = self.tray_menu.addAction("Quit")
-        def quit_app():
-            self.tray_icon.hide()
-            QApplication.instance().quit()
-        quit_action.triggered.connect(quit_app)
-        
         self.tray_icon.setContextMenu(self.tray_menu)
+        
         self.tray_icon.activated.connect(self.on_tray_activated)
         self.tray_icon.show()
 
@@ -711,27 +728,41 @@ class MainWindow(QMainWindow):
                 item.widget().deleteLater()
                 
         presets_data = resolution.get_supported_resolutions(self.get_dev_name())
-        
+        hidden_presets = self.settings.value("hidden_presets", [])
+        if isinstance(hidden_presets, str):
+            hidden_presets = []
+            
         # Load custom ones
         customs = self.settings.value("custom_resolutions", [])
+        
+        final_presets = []
+        for w, h, ratio, label, is_custom in presets_data:
+            key = f"{w}x{h}"
+            if key not in hidden_presets:
+                final_presets.append((w, h, ratio, label, is_custom, None))
+                
         for c in customs:
-            presets_data.append((c['w'], c['h'], "Custom", c['name'], True))
+            final_presets.append((c['w'], c['h'], "Custom", c['name'], True, c.get('hz')))
             
         row, col = 0, 0
-        for w, h, ratio, label, is_custom in presets_data:
-            btn = PresetCard(w, h, ratio, label, is_custom)
-            btn.clicked.connect(lambda checked, width=w, height=h: self.change_res(width, height))
+        for w, h, ratio, label, is_custom, hz in final_presets:
+            btn = PresetCard(w, h, ratio, label, is_custom, hz)
+            btn.clicked.connect(lambda checked, width=w, height=h, freq=hz: self.change_res(width, height, freq))
             btn.delete_requested.connect(self.delete_custom_resolution)
             self.presets_grid.addWidget(btn, row, col)
             col += 1
             if col > 3: # 4 columns
                 col = 0
                 row += 1
+                
+        if hasattr(self, 'update_tray_menu'):
+            self.update_tray_menu()
 
     def add_custom_resolution(self):
         name = self.inp_name.text().strip()
         w = self.inp_rw.text().strip()
         h = self.inp_rh.text().strip()
+        hz_text = self.inp_hz.text().strip()
         
         if not name or not w or not h:
             QMessageBox.warning(self, "Error", "Please fill all fields.")
@@ -783,9 +814,12 @@ class MainWindow(QMainWindow):
             return
             
         hz = 144
-        info = resolution.get_current_resolution(self.get_dev_name())
-        if info and info['hz'] > 0:
-            hz = info['hz']
+        if hz_text:
+            hz = int(hz_text)
+        else:
+            info = resolution.get_current_resolution(self.get_dev_name())
+            if info and info['hz'] > 0:
+                hz = info['hz']
             
         driver_restarted = False
         # Check if already injected
@@ -803,29 +837,38 @@ class MainWindow(QMainWindow):
                 return
                 
         # Save to settings
-        resolutions.append({'name': name, 'w': w_int, 'h': h_int})
+        resolutions.append({'name': name, 'w': w_int, 'h': h_int, 'hz': hz})
         self.settings.setValue("custom_resolutions", resolutions)
         
         self.inp_name.clear()
         self.inp_rw.clear()
         self.inp_rh.clear()
+        self.inp_hz.clear()
         
         if driver_restarted:
             QTimer.singleShot(4000, self.load_presets)
         else:
             self.load_presets()
 
-    def delete_custom_resolution(self, name):
-        reply = QMessageBox.question(self, "Delete Custom Resolution", 
-                                     f"Are you sure you want to delete '{name}'?\nNote: This will remove it from the app but not un-inject it from the registry.",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            resolutions = self.settings.value("custom_resolutions", [])
-            resolutions = [r for r in resolutions if r['name'] != name]
-            self.settings.setValue("custom_resolutions", resolutions)
+    def delete_custom_resolution(self, name, w, h, is_custom):
+        if is_custom:
+            reply = QMessageBox.question(self, "Delete Custom Resolution", 
+                                         f"Are you sure you want to delete '{name}'?\nNote: This will remove it from the app but not un-inject it from the registry.",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                resolutions = self.settings.value("custom_resolutions", [])
+                resolutions = [r for r in resolutions if r['name'] != name]
+                self.settings.setValue("custom_resolutions", resolutions)
+                self.load_presets()
+        else:
+            hidden = self.settings.value("hidden_presets", [])
+            if isinstance(hidden, str):
+                hidden = []
+            hidden.append(f"{w}x{h}")
+            self.settings.setValue("hidden_presets", hidden)
             self.load_presets()
 
-    def change_res(self, w, h):
+    def change_res(self, w, h, hz=None):
         ask_confirm = self.settings.value("ask_apply_res", True, type=bool)
         if ask_confirm:
             cb = QCheckBox("Don't ask me again")
@@ -844,13 +887,18 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 return
             
-        if resolution.set_resolution(w, h, self.get_dev_name()):
+        if resolution.set_resolution(w, h, hz, self.get_dev_name()):
             self.refresh_display()
         else:
             QMessageBox.warning(self, "Error", f"Failed to set custom resolution {w}x{h}. The graphics driver might not support it.")
 
-    def reset_res(self):
-        resolution.set_monitor_state(self.get_dev_name(), True)
+    def reset_res(self, enable_monitors=False):
+        if enable_monitors:
+            for inst_id, toggle in getattr(self, 'hw_toggles', []):
+                toggle.setChecked(True)
+                resolution.set_hardware_monitor_state(inst_id, True)
+            resolution.set_monitor_state(self.get_dev_name(), True)
+            
         if resolution.reset_resolution(self.get_dev_name()):
             self.refresh_display()
 
@@ -882,6 +930,69 @@ class MainWindow(QMainWindow):
             self.curr_res.setText(f"{info['width']} × {info['height']}")
             self.curr_hz.setText(f"{info['hz']} Hz")
         self.populate_pc_resolutions()
+        QTimer.singleShot(100, self.adjust_window_size)
+        
+    def adjust_window_size(self):
+        screen = QApplication.primaryScreen()
+        if not screen: return
+        rect = screen.availableGeometry()
+        
+        w = self.width()
+        h = self.height()
+        changed = False
+        if w > rect.width():
+            w = max(400, rect.width() - 50)
+            changed = True
+        if h > rect.height():
+            h = max(400, rect.height() - 50)
+            changed = True
+            
+        if changed:
+            self.resize(w, h)
+            self.move(rect.center() - self.rect().center())
+
+    def update_tray_menu(self):
+        if not hasattr(self, 'tray_menu'): return
+        self.tray_menu.clear()
+        
+        show_action = self.tray_menu.addAction("Show EasyRes")
+        show_action.triggered.connect(self.showNormal)
+        self.tray_menu.addSeparator()
+        
+        presets_menu = self.tray_menu.addMenu("Presets")
+        hidden_presets = self.settings.value("hidden_presets", [])
+        if isinstance(hidden_presets, str):
+            hidden_presets = []
+            
+        presets_data = resolution.get_supported_resolutions(self.get_dev_name())
+        for w, h, ratio, label, is_custom in presets_data:
+            if f"{w}x{h}" not in hidden_presets:
+                act = presets_menu.addAction(f"{w}x{h}")
+                act.triggered.connect(lambda checked, width=w, height=h: self.change_res(width, height))
+                
+        customs = self.settings.value("custom_resolutions", [])
+        if customs:
+            presets_menu.addSeparator()
+            for c in customs:
+                hz_text = f" @ {c.get('hz')}Hz" if c.get('hz') else ""
+                act = presets_menu.addAction(f"{c['name']} ({c['w']}x{c['h']}{hz_text})")
+                act.triggered.connect(lambda checked, width=c['w'], height=c['h'], freq=c.get('hz'): self.change_res(width, height, freq))
+        
+        self.tray_menu.addSeparator()
+        
+        native_act = self.tray_menu.addAction("Reset to Native (Keep Monitors Disabled)")
+        native_act.triggered.connect(lambda: self.reset_res(enable_monitors=False))
+        
+        native_mon_act = self.tray_menu.addAction("Reset to Native (Enable Monitors)")
+        native_mon_act.triggered.connect(lambda: self.reset_res(enable_monitors=True))
+        
+        self.tray_menu.addSeparator()
+        
+        quit_action = self.tray_menu.addAction("Quit")
+        def quit_app():
+            self.tray_icon.hide()
+            QApplication.instance().quit()
+        quit_action.triggered.connect(quit_app)
 
     def populate_pc_resolutions(self):
         if not hasattr(self, 'pc_res_combo'): return
@@ -889,21 +1000,21 @@ class MainWindow(QMainWindow):
         dev = self.get_dev_name()
         if not dev: return
         modes = resolution.get_all_resolutions(dev)
-        for w, h in modes:
-            self.pc_res_combo.addItem(f"{w} × {h}", (w, h))
+        for w, h, hz in modes:
+            self.pc_res_combo.addItem(f"{w} × {h} @ {hz}Hz", (w, h, hz))
 
     def add_pc_resolution(self):
         data = self.pc_res_combo.currentData()
         if not data: return
-        w, h = data
-        name = f"{w}x{h} (PC)"
+        w, h, hz = data
+        name = f"{w}x{h}@{hz}Hz (PC)"
         resolutions = self.settings.value("custom_resolutions", [])
         for r in resolutions:
-            if r['w'] == w and r['h'] == h:
+            if r['w'] == w and r['h'] == h and r.get('hz') == hz:
                 QMessageBox.warning(self, "Error", "This resolution is already in presets.")
                 return
                 
-        resolutions.append({'name': name, 'w': w, 'h': h})
+        resolutions.append({'name': name, 'w': w, 'h': h, 'hz': hz})
         self.settings.setValue("custom_resolutions", resolutions)
         self.load_presets()
 

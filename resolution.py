@@ -103,7 +103,7 @@ def get_all_resolutions(device_name=None):
         if not user32.EnumDisplaySettingsW(device_name, i, ctypes.byref(dm)):
             break
         if dm.dmPelsHeight > 0:
-            modes.add((dm.dmPelsWidth, dm.dmPelsHeight))
+            modes.add((dm.dmPelsWidth, dm.dmPelsHeight, dm.dmDisplayFrequency))
         i += 1
     return sorted(list(modes), key=lambda x: x[0]*x[1], reverse=True)
 
@@ -130,7 +130,7 @@ def get_supported_resolutions(device_name=None):
         result.append((w, h, ratio_str, "", False))
     return result
 
-def set_resolution(width, height, device_name=None):
+def set_resolution(width, height, hz=None, device_name=None):
     best_dm = None
     best_hz = -1
     
@@ -142,7 +142,11 @@ def set_resolution(width, height, device_name=None):
             break
         
         if dm.dmPelsWidth == width and dm.dmPelsHeight == height:
-            if dm.dmDisplayFrequency > best_hz:
+            if hz is not None:
+                if dm.dmDisplayFrequency == hz:
+                    best_dm = dm
+                    break
+            elif dm.dmDisplayFrequency > best_hz:
                 best_hz = dm.dmDisplayFrequency
                 best_dm = dm
         i += 1
