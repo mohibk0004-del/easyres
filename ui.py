@@ -11,7 +11,7 @@ import threading
 import urllib.request
 import webbrowser
 
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.1.2"
 
 def is_newer_version(latest, current):
     try:
@@ -66,10 +66,10 @@ class AppleToggle(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        bg_color = QColor("#5865F2") if self._checked else QColor("rgba(255,255,255,0.1)")
+        bg_color = QColor("#4647C9") if self._checked else QColor("#333333")
         if self.anim.state() == QPropertyAnimation.State.Running:
             if not self._checked: 
-                bg_color = QColor("rgba(255,255,255,0.1)")
+                bg_color = QColor("#333333")
         
         path = QPainterPath()
         path.addRoundedRect(0, 0, self.width(), self.height(), 13, 13)
@@ -92,22 +92,22 @@ class ActionButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             QPushButton {
-                background-color: #1a1a1a;
-                border: 1px solid #2a2a2b;
-                border-radius: 12px;
-                color: #f5f5f7;
-                font-size: 13px;
-                font-weight: 600;
-                padding: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #15166B, stop:0.62 #3A3FBE, stop:1 #4647C9);
+                border: 1px solid #3A3FBE;
+                border-radius: 10px;
+                color: #F9F9F9;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 9px 12px;
             }
             QPushButton:hover {
-                background-color: #2a2a2b;
-                border: 1px solid #3a3a3c;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4647C9, stop:0.72 #3A3FBE, stop:1 #C6C8FF);
+                border: 1px solid #C6C8FF;
             }
             QPushButton:pressed {
-                background-color: #5865F2;
-                border: 1px solid #5865F2;
-                padding: 12px 8px 8px 12px;
+                background-color: #15166B;
+                border: 1px solid #3A3FBE;
+                padding: 10px 11px 8px 13px;
             }
         """)
 
@@ -123,7 +123,7 @@ class PresetCard(QPushButton):
         self.hz = hz
         
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(124, 76)
+        self.setFixedSize(132, 78)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
@@ -146,31 +146,31 @@ class PresetCard(QPushButton):
         layout.addWidget(ratio_label)
         layout.addWidget(desc_label)
         
-        base_color = "#121212" if not is_custom else "#1e1e24"
-        hover_color = "#1a1a1a" if not is_custom else "#2a2a35"
+        base_color = "#111111" if not is_custom else "#15151d"
+        hover_color = "#333333" if not is_custom else "#292943"
         
         self.setStyleSheet(f"""
             PresetCard {{
                 background-color: {base_color};
-                border: 1px solid #2a2a2b;
-                border-radius: 12px;
+                border: 1px solid #333333;
+                border-radius: 14px;
             }}
             PresetCard:hover {{
                 background-color: {hover_color};
-                border: 1px solid #3a3a3c;
+                border: 1px solid #4647C9;
             }}
             PresetCard:pressed {{
-                background-color: #5865F2;
-                border: 1px solid #5865F2;
+                background-color: #15166B;
+                border: 1px solid #3A3FBE;
             }}
         """)
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #1a1a1a; color: white; border: 1px solid #333; border-radius: 4px; }
+            QMenu { background-color: #111111; color: white; border: 1px solid #333333; border-radius: 4px; }
             QMenu::item { padding: 5px 20px 5px 20px; }
-            QMenu::item:selected { background-color: #ed4245; }
+            QMenu::item:selected { background-color: #4647C9; }
         """)
         action_text = "Delete Custom Resolution" if self.is_custom else "Hide Preset"
         del_action = menu.addAction(action_text)
@@ -190,7 +190,7 @@ class SettingsDialog(QDialog):
         main_layout.setContentsMargins(15, 15, 15, 15)
         
         self.container = QWidget()
-        self.container.setStyleSheet("QWidget { background-color: #000000; border-radius: 16px; border: 1px solid #1a1a1a; }")
+        self.container.setStyleSheet("QWidget { background-color: #000000; border-radius: 16px; border: 1px solid #333333; }")
         
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(30)
@@ -356,8 +356,8 @@ class TutorialDialog(QDialog):
         self.container.setStyleSheet("""
             QWidget {
                 background-color: #000000;
-                border-radius: 16px;
-                border: 1px solid #1a1a1a;
+                border-radius: 20px;
+                border: 1px solid #333333;
             }
         """)
         
@@ -377,9 +377,9 @@ class TutorialDialog(QDialog):
         
         content = QLabel(
             "<div style='color: #a1a1a6; font-size: 14px; line-height: 1.6;'>"
-            "<p style='margin-bottom: 14px; color: #f5f5f7; font-size: 15px;'>This app makes setting up <span style='color: #5865F2; font-weight: bold;'>True Stretch</span> for Valorant easier.</p>"
+            "<p style='margin-bottom: 14px; color: #f5f5f7; font-size: 15px;'>This app makes setting up <span style='color: #4647C9; font-weight: bold;'>True Stretch</span> for Valorant easier.</p>"
             "<p><b>1.</b> Make Valorant <span style='color: #f5f5f7; font-weight: bold;'>Windowed Fullscreen</span>.</p>"
-            "<p><b>2.</b> Disable the monitor from the <span style='color: #5865F2; font-weight: bold;'>Hardware Monitors</span> section.</p>"
+            "<p><b>2.</b> Disable the monitor from the <span style='color: #4647C9; font-weight: bold;'>Hardware Monitors</span> section.</p>"
             "<p><b>3.</b> Choose a predefined preset or add your own custom resolution.</p>"
             "<p><b>4.</b> If you see black bars, change scaling mode to <b>Full Screen</b> in AMD/Nvidia settings, and use <b>Fill</b> in Valorant.</p>"
             "<p><b>5.</b> Use <span style='color: #f5f5f7; font-weight: bold;'>'Reset to Native'</span> to restore defaults and enable your monitor.</p>"
@@ -413,6 +413,8 @@ class MainWindow(QMainWindow):
         for d in self.displays:
             d['device_id'] = d.get('device_id') # Ensure it exists
         self.current_display = self.displays[0] if self.displays else None
+        self._preset_cache = {}
+        self._preset_retry_pending = set()
         
         self.settings = QSettings("EasyRes", "App")
         
@@ -478,7 +480,7 @@ class MainWindow(QMainWindow):
             msg_box.setWindowTitle("EasyRes")
             msg_box.setText("Do you want to minimize to the system tray instead of closing?")
             msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
-            msg_box.setStyleSheet("QMessageBox { background-color: #000000; color: white; } QLabel { color: white; } QPushButton { background-color: #1a1a1a; color: white; border: 1px solid #2a2a2b; padding: 5px 15px; border-radius: 6px; } QPushButton:hover { background-color: #2a2a2b; } QCheckBox { color: white; }")
+            msg_box.setStyleSheet("QMessageBox { background-color: #000000; color: white; } QLabel { color: white; } QPushButton { background-color: #111111; color: white; border: 1px solid #333333; padding: 5px 15px; border-radius: 6px; } QPushButton:hover { background-color: #333333; } QCheckBox { color: white; }")
             
             cb = QCheckBox("Don't ask again")
             msg_box.setCheckBox(cb)
@@ -509,8 +511,8 @@ class MainWindow(QMainWindow):
         self.container.setStyleSheet("""
             QWidget#Container {
                 background-color: #000000;
-                border-radius: 16px;
-                border: 1px solid #1a1a1a;
+                border-radius: 20px;
+                border: 1px solid #333333;
             }
         """)
         
@@ -526,7 +528,7 @@ class MainWindow(QMainWindow):
         
         title_bar = QWidget()
         title_bar.setFixedHeight(42)
-        title_bar.setStyleSheet("background-color: #0a0a0a; border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom: 1px solid #1a1a1a;")
+        title_bar.setStyleSheet("background-color: #000000; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom: 1px solid #333333;")
         self.title_layout = QHBoxLayout(title_bar)
         self.title_layout.setContentsMargins(16, 0, 16, 0)
         
@@ -542,36 +544,36 @@ class MainWindow(QMainWindow):
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         title_label = QLabel("EasyRes")
-        title_label.setStyleSheet("color: #86868b; font-weight: bold; font-size: 13px; border: none; background: transparent;")
+        title_label.setStyleSheet("color: #F9F9F9; font-weight: bold; font-size: 13px; border: none; background: transparent;")
         
         self.settings_btn = QPushButton("⚙")
         self.settings_btn.setFixedSize(28, 28)
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.settings_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 16px; font-weight: bold;} QPushButton:hover { color: white; }")
+        self.settings_btn.setStyleSheet("QPushButton { color: #A7A7A7; background: transparent; border: none; font-size: 16px; font-weight: bold;} QPushButton:hover { color: #4647C9; }")
         self.settings_btn.clicked.connect(self.show_settings)
         
         help_btn = QPushButton("?")
         help_btn.setFixedSize(28, 28)
         help_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        help_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 14px; font-weight: bold;} QPushButton:hover { color: white; }")
+        help_btn.setStyleSheet("QPushButton { color: #A7A7A7; background: transparent; border: none; font-size: 14px; font-weight: bold;} QPushButton:hover { color: #4647C9; }")
         help_btn.clicked.connect(self.show_tutorial)
         
         min_btn = QPushButton("—")
         min_btn.setFixedSize(28, 28)
         min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        min_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 12px; font-weight: bold;} QPushButton:hover { color: white; }")
+        min_btn.setStyleSheet("QPushButton { color: #A7A7A7; background: transparent; border: none; font-size: 12px; font-weight: bold;} QPushButton:hover { color: #4647C9; }")
         min_btn.clicked.connect(self.showMinimized)
         
         max_btn = QPushButton("⬜")
         max_btn.setFixedSize(28, 28)
         max_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        max_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 14px;} QPushButton:hover { color: white; }")
+        max_btn.setStyleSheet("QPushButton { color: #A7A7A7; background: transparent; border: none; font-size: 14px;} QPushButton:hover { color: #4647C9; }")
         max_btn.clicked.connect(self.toggle_maximize)
         
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(28, 28)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet("QPushButton { color: #86868b; background: transparent; border: none; font-size: 14px; } QPushButton:hover { color: white; }")
+        close_btn.setStyleSheet("QPushButton { color: #A7A7A7; background: transparent; border: none; font-size: 14px; } QPushButton:hover { color: #4647C9; }")
         close_btn.clicked.connect(self.close)
         
         self.title_layout.addWidget(logo)
@@ -605,11 +607,12 @@ class MainWindow(QMainWindow):
         # Monitor Section
         mon_row = QHBoxLayout()
         mon_lbl = QLabel("DISPLAY")
-        mon_lbl.setStyleSheet("color: #86868b; font-size: 11px; font-weight: bold;")
+        mon_lbl.setStyleSheet("color: #a7a8ae; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
         self.mon_combo = QComboBox()
         self.mon_combo.setStyleSheet("""
-            QComboBox { background-color: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 6px; color: white; padding: 4px 8px; }
-            QComboBox::drop-down { border: none; }
+            QComboBox { background-color: #111111; border: 1px solid #333333; border-radius: 9px; color: #F9F9F9; padding: 7px 10px; }
+            QComboBox:hover, QComboBox:focus { border-color: #4647C9; }
+            QComboBox::drop-down { border: none; width: 24px; }
         """)
         for d in self.displays:
             clean_name = d['string'] if d['string'] else d['name']
@@ -622,17 +625,17 @@ class MainWindow(QMainWindow):
         
         # Current Res
         curr_box = QWidget()
-        curr_box.setStyleSheet("background-color: #0a0a0a; border-radius: 16px; border: 1px solid #1a1a1a;")
+        curr_box.setStyleSheet("background-color: #000000; border: none;")
         curr_layout = QVBoxLayout(curr_box)
         curr_layout.setContentsMargins(20, 20, 20, 20)
         lbl1 = QLabel("CURRENT RESOLUTION")
-        lbl1.setStyleSheet("color: #86868b; font-size: 11px; font-weight: bold; letter-spacing: 2px;")
+        lbl1.setStyleSheet("color: #A7A7A7; background: transparent; border: none; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
         lbl1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.curr_res = QLabel("1920 × 1080")
-        self.curr_res.setStyleSheet("color: #f5f5f7; font-size: 32px; font-weight: bold;")
+        self.curr_res.setStyleSheet("color: #F9F9F9; background: transparent; border: none; font-size: 34px; font-weight: 700; letter-spacing: -1px;")
         self.curr_res.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.curr_hz = QLabel("144 Hz")
-        self.curr_hz.setStyleSheet("color: #5865F2; font-size: 15px; font-weight: bold;")
+        self.curr_hz.setStyleSheet("color: #C6C8FF; background: transparent; border: none; font-size: 14px; font-weight: 700;")
         self.curr_hz.setAlignment(Qt.AlignmentFlag.AlignCenter)
         curr_layout.addWidget(lbl1)
         curr_layout.addWidget(self.curr_res)
@@ -641,20 +644,37 @@ class MainWindow(QMainWindow):
         
         # Add Custom Res form
         custom_res_header_layout = QHBoxLayout()
-        lbl_custom_res = QLabel("CREATE CUSTOM RESOLUTION")
-        lbl_custom_res.setStyleSheet("color: #86868b; font-size: 11px; font-weight: bold; margin-top: 10px;")
-        lbl_experimental = QLabel("EXPERIMENTAL")
-        lbl_experimental.setStyleSheet("color: #ed4245; font-size: 10px; font-weight: bold; background-color: rgba(237, 66, 69, 0.1); border-radius: 4px; padding: 2px 6px; margin-top: 10px;")
+        lbl_custom_res = QLabel("ADD RESOLUTION")
+        lbl_custom_res.setStyleSheet("color: #f5f5f7; font-size: 13px; font-weight: 700; margin-top: 12px;")
+        self.lbl_experimental = QLabel("SAFE CATALOG")
+        self.lbl_experimental.setStyleSheet("color: #C6C8FF; font-size: 10px; font-weight: 700; background-color: rgba(70, 71, 201, 0.16); border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
         custom_res_header_layout.addWidget(lbl_custom_res)
-        custom_res_header_layout.addWidget(lbl_experimental)
+        custom_res_header_layout.addWidget(self.lbl_experimental)
         custom_res_header_layout.addStretch()
         body_layout.addLayout(custom_res_header_layout)
 
         add_box = QWidget()
-        add_box.setStyleSheet("background-color: #0a0a0a; border-radius: 12px; border: 1px solid #1a1a1a; margin-top: 5px;")
+        add_box.setStyleSheet("background-color: #0b0b0b; border-radius: 16px; border: 1px solid #333333; margin-top: 4px;")
         add_layout = QVBoxLayout(add_box)
-        add_layout.setContentsMargins(15, 15, 15, 15)
-        add_layout.setSpacing(10)
+        add_layout.setContentsMargins(16, 16, 16, 16)
+        add_layout.setSpacing(12)
+
+        safe_row = QHBoxLayout()
+        safe_lbl = QLabel("TESTED 1080P MODE")
+        safe_lbl.setStyleSheet("color: #a7a8ae; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
+        self.safe_res_combo = QComboBox()
+        self.safe_res_combo.setStyleSheet("""
+            QComboBox { background-color: #111111; border: 1px solid #333333; border-radius: 9px; color: #F9F9F9; padding: 8px 10px; font-size: 12px; }
+            QComboBox:hover, QComboBox:focus { border-color: #4647C9; }
+            QComboBox::drop-down { border: none; width: 24px; }
+        """)
+        for width, height in resolution.VALORANT_SAFE_RESOLUTIONS:
+            ratio = resolution.get_aspect_ratio(width, height)
+            self.safe_res_combo.addItem(f"{width} × {height}  ·  {ratio}", (width, height))
+        self.safe_res_combo.currentIndexChanged.connect(self.on_safe_resolution_changed)
+        safe_row.addWidget(safe_lbl)
+        safe_row.addWidget(self.safe_res_combo, 1)
+        add_layout.addLayout(safe_row)
         
         row1 = QHBoxLayout()
         self.inp_name = QLineEdit()
@@ -670,20 +690,27 @@ class MainWindow(QMainWindow):
         self.inp_rh.setValidator(QIntValidator(100, 10000))
         self.inp_rh.setFixedWidth(60)
         
-        self.inp_hz = QLineEdit()
-        self.inp_hz.setPlaceholderText("Hz")
-        self.inp_hz.setValidator(QIntValidator(1, 1000))
-        self.inp_hz.setFixedWidth(40)
+        self.inp_hz = QComboBox()
+        self.inp_hz.setToolTip("Refresh rates exposed by this monitor for the selected resolution")
+        self.inp_hz.setFixedWidth(78)
+        self.inp_hz.addItem("Select Hz", None)
         
         btn_add = ActionButton("Add")
         btn_add.setFixedWidth(60)
         btn_add.clicked.connect(self.add_custom_resolution)
         
-        for inp in (self.inp_name, self.inp_rw, self.inp_rh, self.inp_hz):
+        for inp in (self.inp_name, self.inp_rw, self.inp_rh):
             inp.setStyleSheet("""
-                QLineEdit { background-color: #121212; border: 1px solid #2a2a2b; border-radius: 8px; color: white; padding: 6px; font-size: 12px; }
-                QLineEdit:focus { border: 1px solid #5865F2; }
+                QLineEdit { background-color: #111111; border: 1px solid #333333; border-radius: 8px; color: #F9F9F9; padding: 6px; font-size: 12px; }
+                QLineEdit:focus { border: 1px solid #4647C9; }
             """)
+        self.inp_hz.setStyleSheet("""
+            QComboBox { background-color: #111111; border: 1px solid #333333; border-radius: 8px; color: #F9F9F9; padding: 6px; font-size: 12px; }
+            QComboBox:focus { border: 1px solid #4647C9; }
+            QComboBox::drop-down { border: none; }
+        """)
+        self.inp_rw.textChanged.connect(self.update_custom_hz_options)
+        self.inp_rh.textChanged.connect(self.update_custom_hz_options)
             
         row1.addWidget(self.inp_name)
         row1.addWidget(self.inp_rw)
@@ -692,6 +719,15 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.inp_hz)
         row1.addWidget(btn_add)
         add_layout.addLayout(row1)
+
+        self.experimental_toggle = QCheckBox("Enable experimental resolution")
+        self.experimental_toggle.setStyleSheet("""
+            QCheckBox { color: #D9C3AB; font-size: 12px; font-weight: 600; spacing: 8px; }
+            QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #664646; border-radius: 5px; background: #111111; }
+            QCheckBox::indicator:checked { background: #E85002; border-color: #F16001; }
+        """)
+        self.experimental_toggle.toggled.connect(self.set_experimental_mode)
+        add_layout.addWidget(self.experimental_toggle)
         
         row2 = QHBoxLayout()
         lbl_pc = QLabel("Or add existing:")
@@ -699,7 +735,7 @@ class MainWindow(QMainWindow):
         
         self.pc_res_combo = QComboBox()
         self.pc_res_combo.setStyleSheet("""
-            QComboBox { background-color: #121212; border: 1px solid #2a2a2b; border-radius: 8px; color: white; padding: 4px 8px; font-size: 12px; }
+            QComboBox { background-color: #111111; border: 1px solid #333333; border-radius: 8px; color: white; padding: 4px 8px; font-size: 12px; }
             QComboBox::drop-down { border: none; }
         """)
         
@@ -711,6 +747,13 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.pc_res_combo, 1)
         row2.addWidget(btn_add_pc)
         add_layout.addLayout(row2)
+
+        self.custom_safety_note = QLabel("Uses a tested 4:3 or 5:4 mode. Refresh rates come directly from your monitor's available modes.")
+        self.custom_safety_note.setWordWrap(True)
+        self.custom_safety_note.setStyleSheet("color: #a7a8ae; font-size: 11px; line-height: 1.35; padding-top: 2px;")
+        add_layout.addWidget(self.custom_safety_note)
+        self.set_experimental_mode(False)
+        self.on_safe_resolution_changed()
         
         body_layout.addWidget(add_box)
 
@@ -732,15 +775,15 @@ class MainWindow(QMainWindow):
         lbl3.setStyleSheet("color: #86868b; font-size: 11px; font-weight: bold; margin-top: 10px;")
         body_layout.addWidget(lbl3)
         
-        hw_monitors = resolution.get_hardware_monitors()
         self.hw_toggles = []
+        hw_monitors = resolution.get_hardware_monitors()
         if not hw_monitors:
             no_hw = QLabel("No hardware monitors detected.")
             no_hw.setStyleSheet("color: #86868b; font-size: 12px;")
             body_layout.addWidget(no_hw)
         else:
             hw_box = QWidget()
-            hw_box.setStyleSheet("background-color: #0a0a0a; border-radius: 12px; border: 1px solid #1a1a1a;")
+            hw_box.setStyleSheet("background-color: #111111; border-radius: 12px; border: 1px solid #333333;")
             hw_layout = QVBoxLayout(hw_box)
             hw_layout.setContentsMargins(15, 10, 15, 10)
             for hw in hw_monitors:
@@ -763,15 +806,16 @@ class MainWindow(QMainWindow):
                 row_layout.addWidget(toggle)
                 hw_layout.addLayout(row_layout)
                 self.hw_toggles.append((hw.get("Instance ID", ""), toggle))
-            
             body_layout.addWidget(hw_box)
             
         body_layout.addStretch()
         
         reset_layout = QHBoxLayout()
-        reset_btn = ActionButton("Reset to Native (Keep Monitors Disabled)")
+        reset_btn = ActionButton("Restore Native")
+        reset_btn.setToolTip("Restore the saved native resolution without changing monitor power state")
         reset_btn.clicked.connect(lambda: self.reset_res(enable_monitors=False))
-        reset_mon_btn = ActionButton("Reset to Native (Enable Monitors)")
+        reset_mon_btn = ActionButton("Restore + Enable Monitors")
+        reset_mon_btn.setToolTip("Restore the saved native resolution and enable connected monitors")
         reset_mon_btn.clicked.connect(lambda: self.reset_res(enable_monitors=True))
         reset_layout.addWidget(reset_btn)
         reset_layout.addWidget(reset_mon_btn)
@@ -822,7 +866,7 @@ class MainWindow(QMainWindow):
                 self.container.setStyleSheet("QWidget#Container { background-color: #000000; border-radius: 0px; border: none; }")
             else:
                 self.centralWidget().layout().setContentsMargins(20, 20, 20, 20)
-                self.container.setStyleSheet("QWidget#Container { background-color: #000000; border-radius: 16px; border: 1px solid #1a1a1a; }")
+                self.container.setStyleSheet("QWidget#Container { background-color: #000000; border-radius: 20px; border: 1px solid #333333; }")
 
     def title_move(self, event):
         if self.offset is not None and event.buttons() == Qt.MouseButton.LeftButton:
@@ -830,19 +874,39 @@ class MainWindow(QMainWindow):
             event.accept()
 
     def load_presets(self):
-        # Clear grid
+        dev_name = self.get_dev_name()
+        presets_data = resolution.get_supported_resolutions(dev_name)
+        # A graphics-driver restart can briefly make EnumDisplaySettings return
+        # no modes. Keep the last good list visible and retry the scan instead
+        # of replacing the grid with an empty state.
+        if presets_data:
+            self._preset_cache[dev_name] = presets_data
+        elif dev_name in self._preset_cache:
+            presets_data = self._preset_cache[dev_name]
+            if dev_name not in self._preset_retry_pending:
+                self._preset_retry_pending.add(dev_name)
+                QTimer.singleShot(750, lambda: self._retry_preset_load(dev_name))
+        elif dev_name not in self._preset_retry_pending:
+            self._preset_retry_pending.add(dev_name)
+            QTimer.singleShot(750, lambda: self._retry_preset_load(dev_name))
+
+        # Never destroy a working grid because Windows temporarily returned no
+        # modes while a display driver was restarting.
+        if not presets_data:
+            return
+
         while self.presets_grid.count():
             item = self.presets_grid.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-                
-        presets_data = resolution.get_supported_resolutions(self.get_dev_name())
         hidden_presets = self.settings.value("hidden_presets", [])
         if isinstance(hidden_presets, str):
             hidden_presets = []
             
         # Load custom ones
         customs = self.settings.value("custom_resolutions", [])
+        if not isinstance(customs, list):
+            customs = []
         
         final_presets = []
         for w, h, ratio, label, is_custom in presets_data:
@@ -851,7 +915,8 @@ class MainWindow(QMainWindow):
                 final_presets.append((w, h, ratio, label, is_custom, None))
                 
         for c in customs:
-            final_presets.append((c['w'], c['h'], "Custom", c['name'], True, c.get('hz')))
+            if isinstance(c, dict) and all(key in c for key in ("w", "h", "name")):
+                final_presets.append((c['w'], c['h'], "Custom", c['name'], True, c.get('hz')))
             
         row, col = 0, 0
         for w, h, ratio, label, is_custom, hz in final_presets:
@@ -864,35 +929,122 @@ class MainWindow(QMainWindow):
                 col = 0
                 row += 1
                 
+        if presets_data and dev_name in self._preset_retry_pending:
+            self._preset_retry_pending.discard(dev_name)
         if hasattr(self, 'update_tray_menu'):
-            self.update_tray_menu()
+            self.update_tray_menu(presets_data)
+
+    def _retry_preset_load(self, dev_name):
+        self._preset_retry_pending.discard(dev_name)
+        if dev_name == self.get_dev_name():
+            self.load_presets()
+
+    def on_safe_resolution_changed(self):
+        if not hasattr(self, "safe_res_combo") or self.experimental_toggle.isChecked():
+            return
+        width, height = self.safe_res_combo.currentData()
+        self.inp_rw.setText(str(width))
+        self.inp_rh.setText(str(height))
+        if not self.inp_name.text().strip() or self.inp_name.text().endswith("(Custom)"):
+            self.inp_name.setText(f"{width}x{height} (Custom)")
+        self.update_custom_hz_options()
+
+    def set_experimental_mode(self, enabled):
+        self.safe_res_combo.setEnabled(not enabled)
+        self.inp_rw.setEnabled(enabled)
+        self.inp_rh.setEnabled(enabled)
+        if enabled:
+            self.lbl_experimental.setText("EXPERIMENTAL")
+            self.lbl_experimental.setStyleSheet("color: #D9C3AB; font-size: 10px; font-weight: 700; background-color: rgba(193, 8, 1, 0.28); border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
+            self.custom_safety_note.setText("Highly unsupported and strongly discouraged. Use only if you understand EDID timing risks. Values above 1080p are blocked.")
+        else:
+            self.lbl_experimental.setText("SAFE CATALOG")
+            self.lbl_experimental.setStyleSheet("color: #D9C3AB; font-size: 10px; font-weight: 700; background-color: rgba(232, 80, 2, 0.16); border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
+            self.custom_safety_note.setText("Uses a tested 4:3 or 5:4 mode. Refresh rates come directly from your monitor's available modes.")
+            self.on_safe_resolution_changed()
+
+    def update_custom_hz_options(self):
+        if not hasattr(self, "inp_hz"):
+            return
+        try:
+            width = int(self.inp_rw.text())
+            height = int(self.inp_rh.text())
+        except ValueError:
+            self.inp_hz.clear()
+            self.inp_hz.addItem("Select Hz", None)
+            return
+        previous = self.inp_hz.currentData()
+        self.inp_hz.blockSignals(True)
+        self.inp_hz.clear()
+        rates = resolution.get_monitor_refresh_rates(width, height, self.get_dev_name())
+        if not rates:
+            current = resolution.get_current_resolution(self.get_dev_name())
+            if current and current.get("hz"):
+                rates = [current["hz"]]
+                self.inp_hz.setToolTip("This resolution is not currently exposed by Windows; current monitor Hz shown as a fallback.")
+        else:
+            self.inp_hz.setToolTip("Refresh rates exposed by this monitor for the selected resolution")
+        self.inp_hz.addItem("Select Hz", None)
+        for rate in rates:
+            self.inp_hz.addItem(f"{rate} Hz", rate)
+        if previous in rates:
+            self.inp_hz.setCurrentIndex(rates.index(previous) + 1)
+        elif rates:
+            self.inp_hz.setCurrentIndex(1)
+        self.inp_hz.blockSignals(False)
 
     def add_custom_resolution(self):
         name = self.inp_name.text().strip()
         w = self.inp_rw.text().strip()
         h = self.inp_rh.text().strip()
-        hz_text = self.inp_hz.text().strip()
+        hz = self.inp_hz.currentData()
         
         if not name or not w or not h:
             QMessageBox.warning(self, "Error", "Please fill all fields.")
             return
-            
+
+        try:
+            w_int, h_int = int(w), int(h)
+        except ValueError:
+            QMessageBox.warning(self, "Invalid resolution", "Width and height must be numbers.")
+            return
+
+        if w_int < 100 or h_int < 100 or w_int > 1920 or h_int > 1080:
+            QMessageBox.warning(self, "Unsupported size", "For 1080p monitors, custom modes must stay between 100×100 and 1920×1080.")
+            return
+        if hz is None:
+            QMessageBox.warning(self, "Choose refresh rate", "Select a monitor refresh rate before adding this resolution.")
+            return
+
+        aspect = resolution.get_aspect_ratio(w_int, h_int)
+        safe_catalog = (w_int, h_int) in resolution.VALORANT_SAFE_RESOLUTIONS
+        if not self.experimental_toggle.isChecked() and not safe_catalog:
+            QMessageBox.warning(self, "Safe catalog only", "Choose a listed 4:3 or 5:4 mode, or explicitly enable Experimental resolution.")
+            return
+        if aspect in ("4:3", "5:4") and not safe_catalog:
+            QMessageBox.warning(self, "Unsupported 4:3 / 5:4 mode", "Choose one of EasyRes's tested 1080p catalog resolutions.")
+            return
+
         resolutions = self.settings.value("custom_resolutions", [])
+        if not isinstance(resolutions, list):
+            resolutions = []
         for r in resolutions:
             if r['name'] == name:
                 QMessageBox.warning(self, "Error", "A custom resolution with this name already exists.")
                 return
                 
-        # Ask for injection warning!
-        reply = QMessageBox.warning(self, "Safety Warning: Inject Resolution", 
-                                    f"Adding {w}x{h} requires injecting it into your monitor's EDID configuration and restarting your graphics driver.\n\nWARNING: Your screen will flash black, and some applications might shift.\n\nIf this resolution is not natively supported by your monitor, it might fail to display when applied.\n\nProceed to add and inject?",
+        warning = (f"{w_int}×{h_int} is outside the tested 4:3 / 5:4 VALORANT catalog.\n\n"
+                   "This aspect ratio is highly unsupported, highly discouraged, and experimental. "
+                   "It may fail in VALORANT, create black bars, or leave the display unusable until reset.\n\n"
+                   "Continue anyway?") if aspect == "Experimental" else (
+                   f"Adding {w_int}×{h_int} requires injecting it into your monitor's EDID configuration and restarting your graphics driver.\n\n"
+                   "Your screen may flash black, and unsupported timings may fail.\n\nProceed to add and inject?")
+        reply = QMessageBox.warning(self, "Experimental resolution warning" if aspect == "Experimental" else "Safety Warning: Inject Resolution",
+                                    warning,
                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                                     
         if reply != QMessageBox.StandardButton.Yes:
             return
-            
-        w_int = int(w)
-        h_int = int(h)
             
         # Do injection
         dev_id = None
@@ -922,14 +1074,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"Failed to read EDID from the registry for target: {target_id}.")
             return
             
-        hz = 144
-        if hz_text:
-            hz = int(hz_text)
-        else:
-            info = resolution.get_current_resolution(self.get_dev_name())
-            if info and info['hz'] > 0:
-                hz = info['hz']
-            
         driver_restarted = False
         # Check if already injected
         if not edid.is_resolution_injected(curr_edid, w_int, h_int, hz):
@@ -953,6 +1097,8 @@ class MainWindow(QMainWindow):
         self.inp_rw.clear()
         self.inp_rh.clear()
         self.inp_hz.clear()
+        self.inp_hz.addItem("Select Hz", None)
+        self.on_safe_resolution_changed()
         
         if driver_restarted:
             QTimer.singleShot(4000, self.load_presets)
@@ -1029,6 +1175,7 @@ class MainWindow(QMainWindow):
                 break
         if self.current_display:
             self.refresh_display()
+            self.on_safe_resolution_changed()
 
     def get_dev_name(self):
         return self.current_display['name'] if self.current_display else None
@@ -1060,7 +1207,7 @@ class MainWindow(QMainWindow):
             self.resize(w, h)
             self.move(rect.center() - self.rect().center())
 
-    def update_tray_menu(self):
+    def update_tray_menu(self, presets_data=None):
         if not hasattr(self, 'tray_menu'): return
         self.tray_menu.clear()
         
@@ -1073,13 +1220,16 @@ class MainWindow(QMainWindow):
         if isinstance(hidden_presets, str):
             hidden_presets = []
             
-        presets_data = resolution.get_supported_resolutions(self.get_dev_name())
+        if presets_data is None:
+            dev_name = self.get_dev_name()
+            presets_data = resolution.get_supported_resolutions(dev_name) or self._preset_cache.get(dev_name, [])
         for w, h, ratio, label, is_custom in presets_data:
             if f"{w}x{h}" not in hidden_presets:
                 act = presets_menu.addAction(f"{w}x{h}")
                 act.triggered.connect(lambda checked, width=w, height=h: self.change_res(width, height))
                 
         customs = self.settings.value("custom_resolutions", [])
+        customs = [c for c in customs if isinstance(c, dict) and all(key in c for key in ("name", "w", "h"))] if isinstance(customs, list) else []
         if customs:
             presets_menu.addSeparator()
             for c in customs:
@@ -1110,6 +1260,8 @@ class MainWindow(QMainWindow):
         if not dev: return
         modes = resolution.get_all_resolutions(dev)
         for w, h, hz in modes:
+            if (w, h) not in resolution.VALORANT_SAFE_RESOLUTIONS:
+                continue
             self.pc_res_combo.addItem(f"{w} × {h} @ {hz}Hz", (w, h, hz))
 
     def add_pc_resolution(self):

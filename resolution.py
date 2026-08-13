@@ -11,6 +11,30 @@ CDS_TEST = 2
 CDS_UPDATEREGISTRY = 1
 CDS_NORESET = 268435456
 DISP_CHANGE_SUCCESSFUL = 0
+DM_PELSWIDTH = 0x00080000
+DM_PELSHEIGHT = 0x00100000
+DM_DISPLAYFREQUENCY = 0x00400000
+
+# Common 1080p-monitor modes exposed by VALORANT/community guides.
+# Custom modes outside this list remain possible, but UI marks them experimental.
+VALORANT_SAFE_RESOLUTIONS = (
+    (640, 480), (800, 600), (1024, 768), (1152, 864),
+    (1280, 960), (1440, 1080), (1280, 1024),
+)
+
+def get_aspect_ratio(width, height):
+    if not width or not height:
+        return None
+    ratio = width / height
+    if abs(ratio - 4 / 3) < 0.01:
+        return "4:3"
+    if abs(ratio - 5 / 4) < 0.01:
+        return "5:4"
+    return "Experimental"
+
+def get_monitor_refresh_rates(width, height, device_name=None):
+    return sorted({hz for w, h, hz in get_all_resolutions(device_name)
+                   if w == width and h == height and hz > 0}, reverse=True)
 
 class DEVMODEW(ctypes.Structure):
     _fields_ = [
@@ -117,9 +141,9 @@ def get_supported_resolutions(device_name=None):
             break
         w, h = dm.dmPelsWidth, dm.dmPelsHeight
         if h > 0:
-            ratio = w / h
-            # Only include 4:3 (1.333) and 5:4 (1.25) ratios
-            if abs(ratio - 4/3) < 0.05 or abs(ratio - 5/4) < 0.05:
+            # Default presets only show tested 1080p 4:3 and 5:4 modes.
+            # Experimental modes are explicit custom entries in the UI.
+            if (w, h) in VALORANT_SAFE_RESOLUTIONS:
                 modes.add((w, h))
         i += 1
     
@@ -158,10 +182,11 @@ def set_resolution(width, height, hz=None, device_name=None):
             apply_dm.dmPelsWidth = best_dm.dmPelsWidth
             apply_dm.dmPelsHeight = best_dm.dmPelsHeight
             apply_dm.dmDisplayFrequency = best_dm.dmDisplayFrequency
-            apply_dm.dmFields = 0x00080000 | 0x00100000 | 0x00400000 # DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY
+            apply_dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY
             
             if user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(apply_dm), None, CDS_TEST, None) == DISP_CHANGE_SUCCESSFUL:
-                return user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(apply_dm), None, 0, None) == DISP_CHANGE_SUCCESSFUL
+                if _apply_and_confirm(device_name, apply_dm):
+                    return True
 
     # Fallback for custom resolutions (tests before applying)
     dm = DEVMODEW()
@@ -169,10 +194,14 @@ def set_resolution(width, height, hz=None, device_name=None):
     if user32.EnumDisplaySettingsW(device_name, ENUM_CURRENT_SETTINGS, ctypes.byref(dm)):
         dm.dmPelsWidth = width
         dm.dmPelsHeight = height
-        dm.dmFields = 0x00080000 | 0x00100000 # DM_PELSWIDTH | DM_PELSHEIGHT
+        if hz is not None:
+            dm.dmDisplayFrequency = hz
+            dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY
+        else:
+            dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT
         
         if user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(dm), None, CDS_TEST, None) == DISP_CHANGE_SUCCESSFUL:
-            return user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(dm), None, 0, None) == DISP_CHANGE_SUCCESSFUL
+            return _apply_and_confirm(device_name, dm)
             
     return False
 
@@ -217,7 +246,28 @@ def set_hardware_monitor_state(instance_id, enable):
         return False
 
 def reset_resolution(device_name=None):
+    # Apply the saved registry mode explicitly. This is more reliable than the
+    # NULL-mode reset after a driver/EDID restart, while retaining the fallback
+    # for drivers that only support the legacy reset call.
+    dm = DEVMODEW()
+    dm.dmSize = ctypes.sizeof(DEVMODEW)
+    if user32.EnumDisplaySettingsW(device_name, ENUM_REGISTRY_SETTINGS, ctypes.byref(dm)):
+        if _apply_and_confirm(device_name, dm):
+            return True
     return user32.ChangeDisplaySettingsExW(device_name, None, None, 0, None) == DISP_CHANGE_SUCCESSFUL
+
+def _apply_and_confirm(device_name, dm):
+    """Apply a mode and confirm Windows reports it as active."""
+    for _ in range(3):
+        if user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(dm), None, 0, None) == DISP_CHANGE_SUCCESSFUL:
+            for _ in range(6):
+                time.sleep(0.05)
+                current = get_current_resolution(device_name)
+                if current and current["width"] == dm.dmPelsWidth and current["height"] == dm.dmPelsHeight:
+                    if not (dm.dmFields & DM_DISPLAYFREQUENCY) or current["hz"] == dm.dmDisplayFrequency:
+                        return True
+        time.sleep(0.1)
+    return False
 
 def set_monitor_state(device_name, enabled):
     dm = DEVMODEW()
@@ -227,7 +277,7 @@ def set_monitor_state(device_name, enabled):
         if user32.EnumDisplaySettingsW(device_name, ENUM_CURRENT_SETTINGS, ctypes.byref(dm)):
             dm.dmPelsWidth = 0
             dm.dmPelsHeight = 0
-            dm.dmFields = 0x00080000 | 0x00100000 # DM_PELSWIDTH | DM_PELSHEIGHT
+            dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT
             user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(dm), None, CDS_UPDATEREGISTRY | CDS_NORESET, None)
             return user32.ChangeDisplaySettingsExW(None, None, None, 0, None) == DISP_CHANGE_SUCCESSFUL
     else:
