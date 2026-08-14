@@ -13,7 +13,7 @@ import threading
 import urllib.request
 import webbrowser
 
-APP_VERSION = "2.1.2"
+APP_VERSION = "2.1.3"
 
 def is_newer_version(latest, current):
     try:
@@ -47,59 +47,6 @@ class HotkeyEventFilter(QAbstractNativeEventFilter):
             return True, 0
         return False, 0
 
-
-class HotkeyCaptureInput(QLineEdit):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.hotkey_vk = DEFAULT_HOTKEY_VK
-        self.hotkey_name = DEFAULT_HOTKEY_NAME
-        self.setReadOnly(True)
-
-    def set_hotkey(self, name, vk):
-        self.hotkey_name = name
-        self.hotkey_vk = int(vk)
-        self.setText(name)
-
-    def keyPressEvent(self, event):
-        key = event.key()
-        if key in (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
-            event.accept()
-            return
-
-        vk = int(event.nativeVirtualKey()) if event.nativeVirtualKey() else 0
-        name = event.text().upper().strip()
-        if not name:
-            key_map = {
-                Qt.Key.Key_Escape: "Esc",
-                Qt.Key.Key_Tab: "Tab",
-                Qt.Key.Key_Backspace: "Backspace",
-                Qt.Key.Key_Return: "Enter",
-                Qt.Key.Key_Enter: "Enter",
-                Qt.Key.Key_Space: "Space",
-                Qt.Key.Key_Delete: "Delete",
-                Qt.Key.Key_Insert: "Insert",
-                Qt.Key.Key_Home: "Home",
-                Qt.Key.Key_End: "End",
-                Qt.Key.Key_PageUp: "PageUp",
-                Qt.Key.Key_PageDown: "PageDown",
-                Qt.Key.Key_Left: "Left",
-                Qt.Key.Key_Right: "Right",
-                Qt.Key.Key_Up: "Up",
-                Qt.Key.Key_Down: "Down",
-                Qt.Key.Key_CapsLock: "CapsLock",
-            }
-            if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
-                name = f"F{key - Qt.Key.Key_F1 + 1}"
-            else:
-                name = key_map.get(key, "Unknown")
-
-        if vk <= 0:
-            event.accept()
-            return
-
-        self.set_hotkey(name, vk)
-        self.parent().on_hotkey_input_changed(name, vk)
-        event.accept()
 
 class AppleToggle(QWidget):
     def __init__(self, parent=None):
@@ -168,8 +115,8 @@ class ActionButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #15166B, stop:0.62 #3A3FBE, stop:1 #4647C9);
-                border: 1px solid #3A3FBE;
+                background-color: #4647C9;
+                border: 1px solid #5B5CE2;
                 border-radius: 10px;
                 color: #F9F9F9;
                 font-size: 12px;
@@ -177,13 +124,12 @@ class ActionButton(QPushButton):
                 padding: 9px 12px;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4647C9, stop:0.72 #3A3FBE, stop:1 #C6C8FF);
-                border: 1px solid #C6C8FF;
+                background-color: #5355D6;
+                border-color: #7779F0;
             }
             QPushButton:pressed {
-                background-color: #15166B;
-                border: 1px solid #3A3FBE;
-                padding: 10px 11px 8px 13px;
+                background-color: #393AA9;
+                border-color: #4647C9;
             }
         """)
 
@@ -529,13 +475,13 @@ class MainWindow(QMainWindow):
         self.apply_hotkey_setting()
 
     def get_hotkey_config(self):
-        name = self.settings.value("toggle_hotkey_name", DEFAULT_HOTKEY_NAME, type=str)
         vk = self.settings.value("toggle_hotkey_vk", DEFAULT_HOTKEY_VK, type=int)
-        if not isinstance(vk, int) or vk <= 0:
+        valid_vks = range(0x70, 0x7C)
+        if not isinstance(vk, int) or vk not in valid_vks:
             vk = DEFAULT_HOTKEY_VK
-            name = DEFAULT_HOTKEY_NAME
-            self.settings.setValue("toggle_hotkey_name", name)
             self.settings.setValue("toggle_hotkey_vk", vk)
+        name = f"F{vk - 0x70 + 1}"
+        self.settings.setValue("toggle_hotkey_name", name)
         return name, vk
 
     def apply_hotkey_setting(self):
@@ -546,9 +492,13 @@ class MainWindow(QMainWindow):
         if hasattr(self, "tray_menu"):
             self.update_tray_menu()
 
-    def on_hotkey_input_changed(self, key_name, vk):
+    def on_hotkey_changed(self, index):
+        key_name = self.hotkey_input.itemText(index)
+        vk = self.hotkey_input.itemData(index)
+        if not key_name or not isinstance(vk, int):
+            return
         self.settings.setValue("toggle_hotkey_name", key_name)
-        self.settings.setValue("toggle_hotkey_vk", int(vk))
+        self.settings.setValue("toggle_hotkey_vk", vk)
         self.apply_hotkey_setting()
 
     def toggle_stretch_native_hotkey(self):
@@ -814,14 +764,26 @@ class MainWindow(QMainWindow):
         body_layout.addLayout(custom_res_header_layout)
 
         add_box = QWidget()
-        add_box.setStyleSheet("background-color: #0b0b0b; border-radius: 16px; border: 1px solid #333333; margin-top: 4px;")
+        add_box.setObjectName("AddResolutionPanel")
+        add_box.setStyleSheet("""
+            QWidget#AddResolutionPanel {
+                background-color: #0b0b0b;
+                border: 1px solid #29292D;
+                border-radius: 14px;
+                margin-top: 4px;
+            }
+            QWidget#AddResolutionPanel QLabel {
+                border: none;
+                background: transparent;
+            }
+        """)
         add_layout = QVBoxLayout(add_box)
         add_layout.setContentsMargins(16, 16, 16, 16)
         add_layout.setSpacing(12)
 
         safe_row = QHBoxLayout()
         safe_lbl = QLabel("TESTED 1080P MODE")
-        safe_lbl.setStyleSheet("color: #a7a8ae; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
+        safe_lbl.setStyleSheet("color: #A7A8AE; font-size: 10px; font-weight: 700; letter-spacing: 1px; border: none; background: transparent;")
         self.safe_res_combo = QComboBox()
         self.safe_res_combo.setStyleSheet("""
             QComboBox { background-color: #111111; border: 1px solid #333333; border-radius: 9px; color: #F9F9F9; padding: 8px 10px; font-size: 12px; }
@@ -882,7 +844,7 @@ class MainWindow(QMainWindow):
 
         self.experimental_toggle = QCheckBox("Enable experimental resolution")
         self.experimental_toggle.setStyleSheet("""
-            QCheckBox { color: #D9C3AB; font-size: 12px; font-weight: 600; spacing: 8px; }
+            QCheckBox { color: #D9C3AB; font-size: 12px; font-weight: 600; spacing: 8px; border: none; background: transparent; }
             QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #664646; border-radius: 5px; background: #111111; }
             QCheckBox::indicator:checked { background: #E85002; border-color: #F16001; }
         """)
@@ -891,7 +853,7 @@ class MainWindow(QMainWindow):
         
         row2 = QHBoxLayout()
         lbl_pc = QLabel("Or add existing:")
-        lbl_pc.setStyleSheet("color: #86868b; font-size: 12px;")
+        lbl_pc.setStyleSheet("color: #86868B; font-size: 12px; border: none; background: transparent;")
         
         self.pc_res_combo = QComboBox()
         self.pc_res_combo.setStyleSheet("""
@@ -910,26 +872,31 @@ class MainWindow(QMainWindow):
 
         self.custom_safety_note = QLabel("Uses a tested 4:3 or 5:4 mode. Refresh rates come directly from your monitor's available modes.")
         self.custom_safety_note.setWordWrap(True)
-        self.custom_safety_note.setStyleSheet("color: #a7a8ae; font-size: 11px; line-height: 1.35; padding-top: 2px;")
+        self.custom_safety_note.setStyleSheet("color: #A7A8AE; font-size: 11px; padding-top: 2px; border: none; background: transparent;")
         add_layout.addWidget(self.custom_safety_note)
 
         oled_warning = QLabel("Warning: Do not use stretch/monitor-toggle workflows on OLED panels.")
         oled_warning.setWordWrap(True)
-        oled_warning.setStyleSheet("color: #D9C3AB; font-size: 11px; line-height: 1.35;")
+        oled_warning.setStyleSheet("color: #D9C3AB; font-size: 11px; border: none; background: transparent;")
         add_layout.addWidget(oled_warning)
 
         hotkey_row = QHBoxLayout()
         hotkey_lbl = QLabel("QUICK TOGGLE HOTKEY")
-        hotkey_lbl.setStyleSheet("color: #a7a8ae; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
-        self.hotkey_input = HotkeyCaptureInput(self)
-        self.hotkey_input.setPlaceholderText("Press any key")
-        self.hotkey_input.setToolTip("Press any single key to use as hotkey. Default is F6.")
+        hotkey_lbl.setStyleSheet("color: #A7A8AE; font-size: 10px; font-weight: 700; letter-spacing: 1px; border: none; background: transparent;")
+        self.hotkey_input = QComboBox()
+        self.hotkey_input.setToolTip("Choose a function key from F1 to F12 for the global toggle.")
+        self.hotkey_input.setFixedWidth(92)
+        for function_key in range(1, 13):
+            self.hotkey_input.addItem(f"F{function_key}", 0x6F + function_key)
         self.hotkey_input.setStyleSheet("""
-            QLineEdit { background-color: #111111; border: 1px solid #333333; border-radius: 8px; color: #F9F9F9; padding: 6px; font-size: 12px; min-width: 88px; }
-            QLineEdit:focus { border: 1px solid #4647C9; }
+            QComboBox { background-color: #111111; border: 1px solid #333333; border-radius: 8px; color: #F9F9F9; padding: 6px 8px; font-size: 12px; }
+            QComboBox:hover, QComboBox:focus { border-color: #4647C9; }
+            QComboBox::drop-down { border: none; width: 22px; }
+            QComboBox QAbstractItemView { background-color: #151515; color: #F9F9F9; border: 1px solid #333333; selection-background-color: #4647C9; }
         """)
-        current_name, current_vk = self.get_hotkey_config()
-        self.hotkey_input.set_hotkey(current_name, current_vk)
+        _current_name, current_vk = self.get_hotkey_config()
+        self.hotkey_input.setCurrentIndex(current_vk - 0x70)
+        self.hotkey_input.currentIndexChanged.connect(self.on_hotkey_changed)
         hotkey_row.addWidget(hotkey_lbl)
         hotkey_row.addStretch()
         hotkey_row.addWidget(self.hotkey_input)
@@ -937,7 +904,7 @@ class MainWindow(QMainWindow):
 
         hotkey_hint = QLabel("CS-style quick switch: toggles between your current stretch mode and native resolution with monitor enabled.")
         hotkey_hint.setWordWrap(True)
-        hotkey_hint.setStyleSheet("color: #A7A7A7; font-size: 11px; line-height: 1.35;")
+        hotkey_hint.setStyleSheet("color: #A7A7A7; font-size: 11px; border: none; background: transparent;")
         add_layout.addWidget(hotkey_hint)
         self.set_experimental_mode(False)
         self.on_safe_resolution_changed()
