@@ -118,6 +118,17 @@ def get_current_resolution(device_name=None):
         }
     return None
 
+def get_registry_resolution(device_name=None):
+    dm = DEVMODEW()
+    dm.dmSize = ctypes.sizeof(DEVMODEW)
+    if user32.EnumDisplaySettingsW(device_name, ENUM_REGISTRY_SETTINGS, ctypes.byref(dm)):
+        return {
+            "width": dm.dmPelsWidth,
+            "height": dm.dmPelsHeight,
+            "hz": dm.dmDisplayFrequency
+        }
+    return None
+
 def get_all_resolutions(device_name=None):
     modes = set()
     i = 0

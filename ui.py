@@ -1,10 +1,12 @@
 import sys
 import os
 import winreg
+import ctypes
+from ctypes import wintypes
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QGraphicsDropShadowEffect, QGridLayout,
                              QComboBox, QLineEdit, QSizePolicy, QMessageBox, QSizeGrip, QSystemTrayIcon, QMenu, QDialog, QScrollArea, QFrame, QCheckBox)
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QSize, pyqtProperty, QSettings, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QSize, pyqtProperty, QSettings, QTimer, pyqtSignal, QAbstractNativeEventFilter
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QIntValidator, QBrush, QIcon, QPixmap
 import json
 import threading
@@ -24,6 +26,80 @@ def is_newer_version(latest, current):
 import resolution
 import edid
 import driver
+
+WM_HOTKEY = 0x0312
+HOTKEY_ID_TOGGLE = 1
+DEFAULT_HOTKEY_NAME = "F6"
+DEFAULT_HOTKEY_VK = 0x75
+
+
+class HotkeyEventFilter(QAbstractNativeEventFilter):
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+
+    def nativeEventFilter(self, eventType, message):
+        if eventType not in ("windows_generic_MSG", "windows_dispatcher_MSG"):
+            return False, 0
+        msg = wintypes.MSG.from_address(int(message))
+        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID_TOGGLE:
+            self.callback()
+            return True, 0
+        return False, 0
+
+
+class HotkeyCaptureInput(QLineEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.hotkey_vk = DEFAULT_HOTKEY_VK
+        self.hotkey_name = DEFAULT_HOTKEY_NAME
+        self.setReadOnly(True)
+
+    def set_hotkey(self, name, vk):
+        self.hotkey_name = name
+        self.hotkey_vk = int(vk)
+        self.setText(name)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
+            event.accept()
+            return
+
+        vk = int(event.nativeVirtualKey()) if event.nativeVirtualKey() else 0
+        name = event.text().upper().strip()
+        if not name:
+            key_map = {
+                Qt.Key.Key_Escape: "Esc",
+                Qt.Key.Key_Tab: "Tab",
+                Qt.Key.Key_Backspace: "Backspace",
+                Qt.Key.Key_Return: "Enter",
+                Qt.Key.Key_Enter: "Enter",
+                Qt.Key.Key_Space: "Space",
+                Qt.Key.Key_Delete: "Delete",
+                Qt.Key.Key_Insert: "Insert",
+                Qt.Key.Key_Home: "Home",
+                Qt.Key.Key_End: "End",
+                Qt.Key.Key_PageUp: "PageUp",
+                Qt.Key.Key_PageDown: "PageDown",
+                Qt.Key.Key_Left: "Left",
+                Qt.Key.Key_Right: "Right",
+                Qt.Key.Key_Up: "Up",
+                Qt.Key.Key_Down: "Down",
+                Qt.Key.Key_CapsLock: "CapsLock",
+            }
+            if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
+                name = f"F{key - Qt.Key.Key_F1 + 1}"
+            else:
+                name = key_map.get(key, "Unknown")
+
+        if vk <= 0:
+            event.accept()
+            return
+
+        self.set_hotkey(name, vk)
+        self.parent().on_hotkey_input_changed(name, vk)
+        event.accept()
 
 class AppleToggle(QWidget):
     def __init__(self, parent=None):
@@ -252,7 +328,7 @@ class SettingsDialog(QDialog):
         row3.addStretch()
         row3.addWidget(self.tgl_confirm)
         layout.addLayout(row3)
-        
+
         layout.addSpacing(10)
         
         row4 = QHBoxLayout()
@@ -415,10 +491,13 @@ class MainWindow(QMainWindow):
         self.current_display = self.displays[0] if self.displays else None
         self._preset_cache = {}
         self._preset_retry_pending = set()
-        
         self.settings = QSettings("EasyRes", "App")
+        self.hotkey_filter = None
+        self.hotkey_registered = False
+        self.last_stretch_modes = self._load_last_stretch_modes()
         
         self.init_ui()
+        self.init_hotkey()
         self.refresh_display()
         self.load_presets()
         
@@ -433,6 +512,85 @@ class MainWindow(QMainWindow):
         self.opacity_anim.setEndValue(1.0)
         self.opacity_anim.setEasingCurve(QEasingCurve.Type.OutExpo)
         self.opacity_anim.start()
+
+    def _load_last_stretch_modes(self):
+        raw = self.settings.value("last_stretch_modes", {}, type=dict)
+        if isinstance(raw, dict):
+            return raw
+        return {}
+
+    def _save_last_stretch_modes(self):
+        self.settings.setValue("last_stretch_modes", self.last_stretch_modes)
+
+    def init_hotkey(self):
+        app = QApplication.instance()
+        self.hotkey_filter = HotkeyEventFilter(self.toggle_stretch_native_hotkey)
+        app.installNativeEventFilter(self.hotkey_filter)
+        self.apply_hotkey_setting()
+
+    def get_hotkey_config(self):
+        name = self.settings.value("toggle_hotkey_name", DEFAULT_HOTKEY_NAME, type=str)
+        vk = self.settings.value("toggle_hotkey_vk", DEFAULT_HOTKEY_VK, type=int)
+        if not isinstance(vk, int) or vk <= 0:
+            vk = DEFAULT_HOTKEY_VK
+            name = DEFAULT_HOTKEY_NAME
+            self.settings.setValue("toggle_hotkey_name", name)
+            self.settings.setValue("toggle_hotkey_vk", vk)
+        return name, vk
+
+    def apply_hotkey_setting(self):
+        user32 = ctypes.windll.user32
+        user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
+        key_name, vk = self.get_hotkey_config()
+        self.hotkey_registered = bool(user32.RegisterHotKey(None, HOTKEY_ID_TOGGLE, 0, vk))
+        if hasattr(self, "tray_menu"):
+            self.update_tray_menu()
+
+    def on_hotkey_input_changed(self, key_name, vk):
+        self.settings.setValue("toggle_hotkey_name", key_name)
+        self.settings.setValue("toggle_hotkey_vk", int(vk))
+        self.apply_hotkey_setting()
+
+    def toggle_stretch_native_hotkey(self):
+        dev = self.get_dev_name()
+        if not dev:
+            return
+        current = resolution.get_current_resolution(dev)
+        native = resolution.get_registry_resolution(dev)
+        if not current or not native:
+            return
+
+        is_native_now = (
+            current["width"] == native["width"] and
+            current["height"] == native["height"] and
+            current.get("hz") == native.get("hz")
+        )
+
+        if not is_native_now:
+            self.last_stretch_modes[dev] = {
+                "w": current["width"],
+                "h": current["height"],
+                "hz": current.get("hz")
+            }
+            self._save_last_stretch_modes()
+            self.reset_res(enable_monitors=True)
+            return
+
+        target = self.last_stretch_modes.get(dev)
+        if not target:
+            QMessageBox.information(self, "Hotkey Toggle", "No previous stretch resolution found yet for this display.")
+            return
+
+        w = int(target.get("w", 0))
+        h = int(target.get("h", 0))
+        hz = target.get("hz")
+        if w <= 0 or h <= 0:
+            QMessageBox.information(self, "Hotkey Toggle", "Saved stretch resolution is invalid. Apply one once, then use the hotkey.")
+            return
+        if resolution.set_resolution(w, h, hz, dev):
+            self.refresh_display()
+        else:
+            QMessageBox.warning(self, "Hotkey Toggle", f"Failed to apply saved stretch resolution {w}x{h}.")
 
     def check_first_run(self):
         if not self.settings.value("tutorial_shown", False, type=bool):
@@ -473,6 +631,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.hide()
         elif self.settings.value("dont_ask_tray_close", False, type=bool):
+            ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
             self.tray_icon.hide()
             QApplication.instance().quit()
         else:
@@ -494,6 +653,7 @@ class MainWindow(QMainWindow):
             elif reply == QMessageBox.StandardButton.No:
                 if cb.isChecked():
                     self.settings.setValue("dont_ask_tray_close", True)
+                ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
                 self.tray_icon.hide()
                 QApplication.instance().quit()
             else:
@@ -752,6 +912,33 @@ class MainWindow(QMainWindow):
         self.custom_safety_note.setWordWrap(True)
         self.custom_safety_note.setStyleSheet("color: #a7a8ae; font-size: 11px; line-height: 1.35; padding-top: 2px;")
         add_layout.addWidget(self.custom_safety_note)
+
+        oled_warning = QLabel("Warning: Do not use stretch/monitor-toggle workflows on OLED panels.")
+        oled_warning.setWordWrap(True)
+        oled_warning.setStyleSheet("color: #D9C3AB; font-size: 11px; line-height: 1.35;")
+        add_layout.addWidget(oled_warning)
+
+        hotkey_row = QHBoxLayout()
+        hotkey_lbl = QLabel("QUICK TOGGLE HOTKEY")
+        hotkey_lbl.setStyleSheet("color: #a7a8ae; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
+        self.hotkey_input = HotkeyCaptureInput(self)
+        self.hotkey_input.setPlaceholderText("Press any key")
+        self.hotkey_input.setToolTip("Press any single key to use as hotkey. Default is F6.")
+        self.hotkey_input.setStyleSheet("""
+            QLineEdit { background-color: #111111; border: 1px solid #333333; border-radius: 8px; color: #F9F9F9; padding: 6px; font-size: 12px; min-width: 88px; }
+            QLineEdit:focus { border: 1px solid #4647C9; }
+        """)
+        current_name, current_vk = self.get_hotkey_config()
+        self.hotkey_input.set_hotkey(current_name, current_vk)
+        hotkey_row.addWidget(hotkey_lbl)
+        hotkey_row.addStretch()
+        hotkey_row.addWidget(self.hotkey_input)
+        add_layout.addLayout(hotkey_row)
+
+        hotkey_hint = QLabel("CS-style quick switch: toggles between your current stretch mode and native resolution with monitor enabled.")
+        hotkey_hint.setWordWrap(True)
+        hotkey_hint.setStyleSheet("color: #A7A7A7; font-size: 11px; line-height: 1.35;")
+        add_layout.addWidget(hotkey_hint)
         self.set_experimental_mode(False)
         self.on_safe_resolution_changed()
         
@@ -945,8 +1132,6 @@ class MainWindow(QMainWindow):
         width, height = self.safe_res_combo.currentData()
         self.inp_rw.setText(str(width))
         self.inp_rh.setText(str(height))
-        if not self.inp_name.text().strip() or self.inp_name.text().endswith("(Custom)"):
-            self.inp_name.setText(f"{width}x{height} (Custom)")
         self.update_custom_hz_options()
 
     def set_experimental_mode(self, enabled):
@@ -958,7 +1143,7 @@ class MainWindow(QMainWindow):
             self.lbl_experimental.setStyleSheet("color: #D9C3AB; font-size: 10px; font-weight: 700; background-color: rgba(193, 8, 1, 0.28); border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
             self.custom_safety_note.setText("Highly unsupported and strongly discouraged. Use only if you understand EDID timing risks. Values above 1080p are blocked.")
         else:
-            self.lbl_experimental.setText("SAFE CATALOG")
+            self.lbl_experimental.setText("EXPERIMENTAL")
             self.lbl_experimental.setStyleSheet("color: #D9C3AB; font-size: 10px; font-weight: 700; background-color: rgba(232, 80, 2, 0.16); border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
             self.custom_safety_note.setText("Uses a tested 4:3 or 5:4 mode. Refresh rates come directly from your monitor's available modes.")
             self.on_safe_resolution_changed()
@@ -1019,7 +1204,7 @@ class MainWindow(QMainWindow):
         aspect = resolution.get_aspect_ratio(w_int, h_int)
         safe_catalog = (w_int, h_int) in resolution.VALORANT_SAFE_RESOLUTIONS
         if not self.experimental_toggle.isChecked() and not safe_catalog:
-            QMessageBox.warning(self, "Safe catalog only", "Choose a listed 4:3 or 5:4 mode, or explicitly enable Experimental resolution.")
+            QMessageBox.warning(self, "Experimental disabled", "Choose a listed 4:3 or 5:4 mode, or explicitly enable Experimental resolution.")
             return
         if aspect in ("4:3", "5:4") and not safe_catalog:
             QMessageBox.warning(self, "Unsupported 4:3 / 5:4 mode", "Choose one of EasyRes's tested 1080p catalog resolutions.")
@@ -1143,6 +1328,11 @@ class MainWindow(QMainWindow):
                 return
             
         if resolution.set_resolution(w, h, hz, self.get_dev_name()):
+            dev = self.get_dev_name()
+            native = resolution.get_registry_resolution(dev)
+            if native and (w != native["width"] or h != native["height"] or hz != native.get("hz")):
+                self.last_stretch_modes[dev] = {"w": w, "h": h, "hz": hz}
+                self._save_last_stretch_modes()
             self.refresh_display()
         else:
             QMessageBox.warning(self, "Error", f"Failed to set custom resolution {w}x{h}. The graphics driver might not support it.")
@@ -1213,6 +1403,10 @@ class MainWindow(QMainWindow):
         
         show_action = self.tray_menu.addAction("Show EasyRes")
         show_action.triggered.connect(self.showNormal)
+
+        hotkey_name, _ = self.get_hotkey_config()
+        hotkey_action = self.tray_menu.addAction(f"Toggle Stretch <-> Native ({hotkey_name})")
+        hotkey_action.triggered.connect(self.toggle_stretch_native_hotkey)
         self.tray_menu.addSeparator()
         
         presets_menu = self.tray_menu.addMenu("Presets")
@@ -1249,6 +1443,7 @@ class MainWindow(QMainWindow):
         
         quit_action = self.tray_menu.addAction("Quit")
         def quit_app():
+            ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
             self.tray_icon.hide()
             QApplication.instance().quit()
         quit_action.triggered.connect(quit_app)
