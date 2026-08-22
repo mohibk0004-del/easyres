@@ -153,9 +153,12 @@ class MainWindow(QMainWindow):
             self.reset_res(enable_monitors=True)
             return
 
-        target = self.last_stretch_modes.get(dev)
+        target = self.settings.value("hotkey_target_res", None)
+        if not target or not isinstance(target, dict) or not target.get("w"):
+            target = self.last_stretch_modes.get(dev)
+
         if not target:
-            themed_message_box(self, "Hotkey Toggle", "No previous stretch resolution found yet for this display.")
+            themed_message_box(self, "Hotkey Toggle", "No stretch resolution selected or previously applied.")
             return
 
         w, h, hz = int(target.get("w", 0)), int(target.get("h", 0)), target.get("hz")
@@ -448,8 +451,15 @@ class MainWindow(QMainWindow):
         _current_name, current_vk = self.get_hotkey_config()
         self.hotkey_input.setCurrentIndex(current_vk - 0x70)
         self.hotkey_input.currentIndexChanged.connect(self.on_hotkey_changed)
+
+        self.hotkey_target_combo = QComboBox()
+        self.hotkey_target_combo.setToolTip("Select the stretch resolution for the hotkey.")
+        self.hotkey_target_combo.setStyleSheet(styles.combo_qss())
+        self.hotkey_target_combo.currentIndexChanged.connect(self.on_hotkey_target_changed)
+
         hotkey_row.addWidget(hotkey_lbl)
         hotkey_row.addStretch()
+        hotkey_row.addWidget(self.hotkey_target_combo)
         hotkey_row.addWidget(self.hotkey_input)
         add_layout.addLayout(hotkey_row)
         
@@ -662,10 +672,31 @@ class MainWindow(QMainWindow):
             
         self.layout_presets_grid()
                 
+        if hasattr(self, 'hotkey_target_combo'):
+            self.hotkey_target_combo.blockSignals(True)
+            self.hotkey_target_combo.clear()
+            self.hotkey_target_combo.addItem("Latest Applied", None)
+            saved_target = self.settings.value("hotkey_target_res", None)
+            if not isinstance(saved_target, dict):
+                saved_target = None
+            idx_to_select = 0
+            
+            for idx, (w, h, ratio, label, is_custom, hz) in enumerate(final_presets):
+                self.hotkey_target_combo.addItem(f"{w} × {h}{' @ '+str(hz)+'Hz' if hz else ''}", {"w": w, "h": h, "hz": hz})
+                if saved_target and saved_target.get("w") == w and saved_target.get("h") == h and saved_target.get("hz") == hz:
+                    idx_to_select = idx + 1
+                    
+            self.hotkey_target_combo.setCurrentIndex(idx_to_select)
+            self.hotkey_target_combo.blockSignals(False)
+
         if presets_data and dev_name in self._preset_retry_pending:
             self._preset_retry_pending.discard(dev_name)
         if hasattr(self, 'update_tray_menu'):
             self.update_tray_menu(presets_data)
+
+    def on_hotkey_target_changed(self, index):
+        data = self.hotkey_target_combo.currentData()
+        self.settings.setValue("hotkey_target_res", data)
 
     def _retry_preset_load(self, dev_name):
         self._preset_retry_pending.discard(dev_name)
