@@ -2,8 +2,8 @@ import sys
 import os
 import ctypes
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QIcon
-from ui import MainWindow
+from PyQt6.QtGui import QIcon, QFontDatabase, QFont
+from ui.main_window import MainWindow
 
 def is_admin():
     try:
@@ -39,6 +39,15 @@ def main():
         if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
             QMessageBox.critical(None, "EasyRes", "An instance of EasyRes is already running. Check your system tray.")
             sys.exit(0)
+            
+        # Load fonts
+        for font_file in ["Inter-Regular.ttf", "Inter-Medium.ttf", "Inter-SemiBold.ttf", "Inter-Bold.ttf"]:
+            font_path = os.path.join(base_path, "assets", "fonts", font_file)
+            if os.path.exists(font_path):
+                QFontDatabase.addApplicationFont(font_path)
+                
+        # Apply global font
+        app.setFont(QFont("Inter", 11))
         
         # Enable High DPI scaling
         if hasattr(Qt := getattr(app, "setAttribute", None), "__call__"):

@@ -152,10 +152,7 @@ def get_supported_resolutions(device_name=None):
             break
         w, h = dm.dmPelsWidth, dm.dmPelsHeight
         if h > 0:
-            # Default presets only show tested 1080p 4:3 and 5:4 modes.
-            # Experimental modes are explicit custom entries in the UI.
-            if (w, h) in VALORANT_SAFE_RESOLUTIONS:
-                modes.add((w, h))
+            modes.add((w, h))
         i += 1
     
     # Format and label them
