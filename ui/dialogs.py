@@ -1,9 +1,6 @@
 import sys
 import os
 import winreg
-import urllib.request
-import json
-import webbrowser
 
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -16,16 +13,7 @@ from theme import tokens as t
 from theme import styles
 from theme.assets import icon_path
 from ui.widgets import ActionButton, PremiumToggle
-
-APP_VERSION = "2.1.4"
-
-def is_newer_version(latest, current):
-    try:
-        l_parts = [int(x) for x in latest.split('.')]
-        c_parts = [int(x) for x in current.split('.')]
-        return l_parts > c_parts
-    except:
-        return latest != current
+import updater
 
 class BaseStyledDialog(QDialog):
     def __init__(self, title_text, width, height, parent=None):
@@ -65,7 +53,7 @@ class SettingsDialog(BaseStyledDialog):
         self.content_layout.addSpacing(20)
         
         self._add_row("Minimize to System Tray on Close", "minimize_to_tray", self.on_tray_toggle)
-        self._add_row("Ask before closing", "ask_close", self.on_ask_close_toggle)
+        self._add_row("Always Ask on Close", "ask_close", self.on_ask_close_toggle, default=True)
         self._add_row("Run on Windows Startup", "run_on_startup", self.on_startup_toggle)
         self._add_row("Confirm Resolution Changes", "ask_apply_res", self.on_confirm_toggle, default=True)
         
@@ -98,11 +86,7 @@ class SettingsDialog(BaseStyledDialog):
         lbl.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_MD}px; font-weight: 500; border: none;")
         tgl = PremiumToggle()
         
-        if setting_key == "ask_close":
-            val = not self.settings.value("dont_ask_tray_close", False, type=bool) and not self.settings.value("minimize_to_tray", False, type=bool)
-            tgl.setChecked(val, emit=False)
-        else:
-            tgl.setChecked(self.settings.value(setting_key, default, type=bool), emit=False)
+        tgl.setChecked(self.settings.value(setting_key, default, type=bool), emit=False)
             
         tgl.toggled.connect(slot)
         setattr(self, f"tgl_{setting_key}", tgl)
@@ -114,19 +98,9 @@ class SettingsDialog(BaseStyledDialog):
 
     def on_tray_toggle(self):
         self.settings.setValue("minimize_to_tray", self.tgl_minimize_to_tray.isChecked())
-        if self.tgl_minimize_to_tray.isChecked():
-            self.settings.setValue("dont_ask_tray_close", False)
-            self.tgl_ask_close.setChecked(False, emit=False)
 
     def on_ask_close_toggle(self):
-        if self.tgl_ask_close.isChecked():
-            self.settings.setValue("minimize_to_tray", False)
-            self.settings.setValue("dont_ask_tray_close", False)
-            self.tgl_minimize_to_tray.setChecked(False, emit=False)
-        else:
-            self.settings.setValue("dont_ask_tray_close", True)
-            self.settings.setValue("minimize_to_tray", False)
-            self.tgl_minimize_to_tray.setChecked(False, emit=False)
+        self.settings.setValue("ask_close", self.tgl_ask_close.isChecked())
 
     def on_confirm_toggle(self):
         self.settings.setValue("ask_apply_res", self.tgl_ask_apply_res.isChecked())
@@ -155,25 +129,33 @@ class SettingsDialog(BaseStyledDialog):
             
     def check_for_updates(self):
         try:
-            req = urllib.request.Request("https://api.github.com/repos/mohibk0004-del/easyres/releases/latest")
-            req.add_header('User-Agent', 'EasyRes-App')
-            with urllib.request.urlopen(req, timeout=5) as response:
-                data = json.loads(response.read().decode())
-                latest_version = data.get("tag_name", "").lstrip("v")
-                
-                if latest_version and is_newer_version(latest_version, APP_VERSION):
-                    reply = themed_message_box(
-                        self, "Update Available", 
-                        f"Version {latest_version} is available. You are using {APP_VERSION}.\n\nDo you want to download the update?", 
-                        QMessageBox.Icon.Information,
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                    )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        webbrowser.open("https://github.com/mohibk0004-del/easyres/releases/latest")
-                else:
-                    themed_message_box(self, "Up to Date", "You are using the latest version of EasyRes.")
-        except Exception as e:
-            themed_message_box(self, "Update Check Failed", "Could not check for updates.", QMessageBox.Icon.Warning)
+            release = updater.fetch_latest_release()
+            latest_version = release.get("tag_name", "").lstrip("v")
+
+            if latest_version and updater.is_newer_version(latest_version, updater.CURRENT_VERSION):
+                reply = themed_message_box(
+                    self, "Update Available",
+                    f"Version {latest_version} is available. You are using {updater.CURRENT_VERSION}.\n\nInstall and restart EasyRes now?",
+                    QMessageBox.Icon.Information,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    if not updater.can_self_update():
+                        themed_message_box(
+                            self,
+                            "Update Unavailable",
+                            "Automatic updates are available in the packaged EasyRes.exe build.",
+                            QMessageBox.Icon.Information,
+                        )
+                        return
+                    parent = self.parent()
+                    if parent and hasattr(parent, "start_update"):
+                        parent.start_update(release)
+                        self.accept()
+            else:
+                themed_message_box(self, "Up to Date", "You are using the latest version of EasyRes.")
+        except updater.UpdateError as exc:
+            themed_message_box(self, "Update Check Failed", str(exc), QMessageBox.Icon.Warning)
 
     def restore_hidden_presets(self):
         self.settings.setValue("hidden_presets", [])

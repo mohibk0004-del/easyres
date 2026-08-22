@@ -1,12 +1,13 @@
 """Reusable UI widgets for EasyRes."""
 
 from PyQt6.QtWidgets import (
-    QPushButton, QWidget, QVBoxLayout, QLabel, QMenu, QGraphicsOpacityEffect,
+    QPushButton, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMenu,
+    QGraphicsOpacityEffect, QSizePolicy,
 )
 from PyQt6.QtCore import (
     Qt, QPropertyAnimation, QEasingCurve, QRect, pyqtProperty, pyqtSignal,
 )
-from PyQt6.QtGui import QPainter, QPainterPath, QBrush, QColor, QIcon
+from PyQt6.QtGui import QPainter, QPainterPath, QBrush, QColor, QIcon, QPixmap, QPen, QFont
 
 from theme import tokens as t
 from theme import styles
@@ -27,7 +28,7 @@ class PremiumToggle(QWidget):
         self._focused = False
 
         self.anim = QPropertyAnimation(self, b"handle_pos")
-        self.anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutExpo)
         self.anim.setDuration(t.MOTION_TOGGLE)
 
     @pyqtProperty(int)
@@ -91,7 +92,7 @@ class PremiumToggle(QWidget):
             p.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, 12, 12)
 
         handle_rect = QRect(self._pos, 2, 22, 22)
-        p.setBrush(QBrush(QColor("white")))
+        p.setBrush(QBrush(QColor(t.TEXT_PRIMARY)))
         p.setPen(Qt.PenStyle.NoPen)
         p.save()
         p.setBrush(QBrush(QColor(0, 0, 0, 50)))
@@ -115,20 +116,160 @@ class IconButton(QPushButton):
         self.setToolTip(tooltip)
         self.setAccessibleName(accessible_name)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setIcon(QIcon(icon_path(svg_name)))
         self.setIconSize(self.size() * 0.55)
         self.setStyleSheet(styles.icon_button_qss())
         self._svg_name = svg_name
+        self.set_svg(svg_name)
 
     def set_svg(self, svg_name: str):
         self._svg_name = svg_name
-        self.setIcon(QIcon(icon_path(svg_name)))
+        known_chrome_icon = any(
+            name in svg_name.lower()
+            for name in ("settings", "help", "minimize", "maximize", "restore", "close")
+        )
+        if known_chrome_icon:
+            icon = self._painted_icon(svg_name)
+        else:
+            icon = QIcon(icon_path(svg_name))
+            if icon.isNull():
+                icon = self._painted_icon(svg_name)
+        self.setIcon(icon)
+
+    def _painted_icon(self, svg_name: str) -> QIcon:
+        size = t.ICON_BTN_SIZE
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(t.TEXT_SECONDARY), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+
+        name = svg_name.lower()
+        if "close" in name:
+            painter.drawLine(9, 9, 19, 19)
+            painter.drawLine(19, 9, 9, 19)
+        elif "minimize" in name:
+            painter.drawLine(9, 17, 19, 17)
+        elif "restore" in name:
+            painter.drawRect(8, 11, 9, 9)
+            painter.drawRect(11, 8, 9, 9)
+        elif "maximize" in name:
+            painter.drawRect(9, 9, 10, 10)
+        elif "help" in name:
+            painter.drawEllipse(7, 7, 14, 14)
+            painter.setFont(QFont("Inter", 11, QFont.Weight.Bold))
+            painter.drawText(0, 0, size, size, Qt.AlignmentFlag.AlignCenter, "?")
+        elif "settings" in name:
+            painter.drawEllipse(10, 10, 8, 8)
+            painter.drawEllipse(13, 13, 2, 2)
+            painter.drawLine(14, 6, 14, 9)
+            painter.drawLine(14, 19, 14, 22)
+            painter.drawLine(6, 14, 9, 14)
+            painter.drawLine(19, 14, 22, 14)
+            painter.drawLine(8, 8, 10, 10)
+            painter.drawLine(18, 18, 20, 20)
+            painter.drawLine(20, 8, 18, 10)
+            painter.drawLine(10, 18, 8, 20)
+        else:
+            painter.drawRect(9, 9, 10, 10)
+
+        painter.end()
+        return QIcon(pixmap)
 
 
 class SectionLabel(QLabel):
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
         self.setStyleSheet(styles.section_label_qss())
+
+
+class StatPill(QWidget):
+    def __init__(self, label: str, value: str = "--", parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(74)
+        self.setStyleSheet(styles.stat_pill_qss())
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(t.SPACE_LG, t.SPACE_MD, t.SPACE_LG, t.SPACE_MD)
+        layout.setSpacing(t.SPACE_XS)
+
+        self.label = QLabel(label)
+        self.label.setStyleSheet(styles.section_label_qss())
+
+        self.value = QLabel(value)
+        self.value.setStyleSheet(styles.stat_value_qss())
+
+        layout.addWidget(self.label)
+        layout.addWidget(self.value)
+
+    def set_value(self, value: str, accent: bool = False, warning: bool = False):
+        self.value.setText(value)
+        self.value.setStyleSheet(styles.stat_value_qss(accent=accent, warning=warning))
+
+
+class ModeRow(QWidget):
+    apply_requested = pyqtSignal(int, int, object)
+    delete_requested = pyqtSignal(str, int, int, bool)
+
+    def __init__(self, width, height, ratio, label, is_custom=False, hz=None, is_active=False, parent=None):
+        super().__init__(parent)
+        self.res_width = width
+        self.res_height = height
+        self.ratio = ratio
+        self.label_text = label
+        self.is_custom = is_custom
+        self.hz = hz
+        self._is_active = is_active
+        self.setMinimumHeight(58)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+        self.setStyleSheet(styles.mode_row_qss(is_active=is_active, is_custom=is_custom))
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(t.SPACE_MD, t.SPACE_MD, t.SPACE_MD, t.SPACE_MD)
+        layout.setSpacing(t.SPACE_MD)
+
+        title = QLabel(f"{width} x {height}")
+        title.setMinimumWidth(0)
+        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title.setStyleSheet(styles.body_label_qss())
+
+        meta_bits = [ratio]
+        if label:
+            meta_bits.append(label)
+        if is_custom:
+            meta_bits.append("custom")
+        meta = QLabel("  /  ".join(meta_bits))
+        meta.setMinimumWidth(0)
+        meta.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        meta.setStyleSheet(styles.muted_label_qss(t.FONT_SM))
+
+        hz_text = QLabel(f"{hz} Hz" if hz else "Best Hz")
+        hz_text.setFixedWidth(64)
+        hz_text.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        hz_text.setStyleSheet(styles.body_label_qss())
+
+        apply_btn = ActionButton("Active" if is_active else "Apply", primary=is_active)
+        apply_btn.setFixedWidth(68)
+        apply_btn.setEnabled(not is_active)
+        apply_btn.clicked.connect(lambda: self.apply_requested.emit(width, height, hz))
+
+        text_stack = QVBoxLayout()
+        text_stack.setContentsMargins(0, 0, 0, 0)
+        text_stack.setSpacing(t.SPACE_XS)
+        text_stack.addWidget(title)
+        text_stack.addWidget(meta)
+
+        layout.addLayout(text_stack, 1)
+        layout.addWidget(hz_text)
+        layout.addWidget(apply_btn)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.setStyleSheet(styles.menu_qss())
+        action_text = "Delete Custom Resolution" if self.is_custom else "Hide Preset"
+        delete_action = menu.addAction(action_text)
+        action = menu.exec(event.globalPos())
+        if action == delete_action:
+            self.delete_requested.emit(self.label_text, self.res_width, self.res_height, self.is_custom)
 
 
 class ResolutionHero(QWidget):

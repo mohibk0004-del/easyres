@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-23T00:00:00+05:00",
+  "title": "Design System: EasyRes",
+  "extensions": {
+    "colorMeta": {
+      "void-black": { "role": "neutral", "displayName": "Void Black", "canonical": "#000000", "tonalRamp": ["#000000", "#0a0a0a", "#121212", "#1a1a1a", "#2a2a2b", "#3a3a3c", "#86868b", "#f5f5f7"] },
+      "signal-blurple": { "role": "primary", "displayName": "Signal Blurple", "canonical": "#5865f2", "tonalRamp": ["#10143d", "#1b225f", "#293284", "#3945ad", "#5865f2", "#7d87f5", "#a8aff8", "#d7dafe"] },
+      "destructive-red": { "role": "tertiary", "displayName": "Destructive Red", "canonical": "#dc2626", "tonalRamp": ["#3d0b0b", "#641010", "#8d1717", "#b91f1f", "#dc2626", "#eb6565", "#f4a3a3", "#fbdada"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Current resolution and singular high-priority values." },
+      "headline": { "displayName": "Headline", "purpose": "Dialog titles and major screen headings." },
+      "title": { "displayName": "Title", "purpose": "Section and component titles." },
+      "body": { "displayName": "Body", "purpose": "Controls, supporting descriptions, and messages." },
+      "label": { "displayName": "Label", "purpose": "Compact uppercase section labels." }
+    },
+    "shadows": [
+      { "name": "window-ambient", "value": "0 10px 30px rgba(0, 0, 0, 0.59)", "purpose": "Separate frameless windows and dialogs from the desktop." }
+    ],
+    "motion": [
+      { "name": "fast", "value": "200ms ease-out", "purpose": "Hover, focus, and compact state feedback." },
+      { "name": "standard", "value": "300ms ease-out", "purpose": "Panel and component state changes." },
+      { "name": "fade", "value": "500ms ease-out-expo", "purpose": "Window appearance when Windows animations are enabled." }
+    ],
+    "breakpoints": [
+      { "name": "compact-window", "value": "400px" },
+      { "name": "default-window", "value": "720px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary resolution or confirmation action.",
+      "html": "<button class=\"ds-btn-primary\">Apply resolution</button>",
+      "css": ".ds-btn-primary { background:#5865f2; color:#f5f5f7; border:1px solid #5865f2; border-radius:12px; padding:10px 16px; font:600 13px Inter, 'Segoe UI', sans-serif; transition:background 200ms ease-out,border-color 200ms ease-out; } .ds-btn-primary:hover { background:#4752c4; } .ds-btn-primary:active { background:#4752c4; } .ds-btn-primary:focus-visible { outline:2px solid #5865f2; outline-offset:2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ordinary utility action.",
+      "html": "<button class=\"ds-btn-secondary\">Add preset</button>",
+      "css": ".ds-btn-secondary { background:#1a1a1a; color:#f5f5f7; border:1px solid #2a2a2b; border-radius:12px; padding:10px 16px; font:600 13px Inter, 'Segoe UI', sans-serif; transition:background 200ms ease-out,border-color 200ms ease-out; } .ds-btn-secondary:hover { background:#2a2a2b; border-color:#3a3a3c; } .ds-btn-secondary:active { background:#5865f2; border-color:#5865f2; } .ds-btn-secondary:focus-visible { outline:2px solid #5865f2; outline-offset:2px; }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Explicit destructive or multi-state recovery action.",
+      "html": "<button class=\"ds-btn-danger\">Restore + Enable Monitors</button>",
+      "css": ".ds-btn-danger { background:#dc2626; color:#f5f5f7; border:1px solid #dc2626; border-radius:12px; padding:10px 16px; font:600 13px Inter, 'Segoe UI', sans-serif; transition:background 200ms ease-out; } .ds-btn-danger:hover,.ds-btn-danger:active { background:#ef4444; } .ds-btn-danger:focus-visible { outline:2px solid #5865f2; outline-offset:2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Compact custom-resolution field.",
+      "html": "<input class=\"ds-input\" value=\"1440\" aria-label=\"Resolution width\">",
+      "css": ".ds-input { background:#121212; color:#f5f5f7; border:1px solid #2a2a2b; border-radius:8px; padding:6px 8px; font:500 13px Inter, 'Segoe UI', sans-serif; transition:border-color 200ms ease-out; } .ds-input:hover { border-color:#3a3a3c; } .ds-input:focus-visible { border-color:#5865f2; outline:1px solid #5865f2; }"
+    },
+    {
+      "name": "Resolution Preset",
+      "kind": "card",
+      "refersTo": "preset-card",
+      "description": "Compact selectable display mode.",
+      "html": "<button class=\"ds-preset\"><strong>1440 × 1080</strong><span>4:3</span><small>Current</small></button>",
+      "css": ".ds-preset { width:124px; height:76px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; background:#121212; color:#f5f5f7; border:2px solid #5865f2; border-radius:12px; font-family:Inter, 'Segoe UI', sans-serif; transition:background 200ms ease-out,border-color 200ms ease-out; } .ds-preset strong { font-size:13px; } .ds-preset span { color:#86868b; font-size:11px; } .ds-preset small { color:#86868b; font-size:10px; } .ds-preset:hover { background:#1a1a1a; border-color:#3a3a3c; } .ds-preset:active { background:#5865f2; } .ds-preset:focus-visible { outline:2px solid #5865f2; outline-offset:2px; }"
+    },
+    {
+      "name": "Hardware Monitor Toggle",
+      "kind": "custom",
+      "description": "Explicit hardware monitor state control.",
+      "html": "<button class=\"ds-toggle\" role=\"switch\" aria-checked=\"true\" aria-label=\"Hardware monitor enabled\"><span></span></button>",
+      "css": ".ds-toggle { width:46px; height:26px; padding:2px; border:0; border-radius:13px; background:#5865f2; display:flex; justify-content:flex-end; transition:background 200ms ease-out; } .ds-toggle span { width:22px; height:22px; border-radius:50%; background:#f5f5f7; box-shadow:0 1px 2px rgba(0,0,0,.2); } .ds-toggle:hover { background:#4752c4; } .ds-toggle:active { background:#4752c4; } .ds-toggle:focus-visible { outline:2px solid #5865f2; outline-offset:2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Match Console",
+    "overview": "EasyRes is a compact dark utility designed for a competitive player preparing a display in a dim desktop environment. Its visual system is precise, tactical, and fast: dense enough for expert control, but quiet enough that current state and the next action dominate. The interface uses restrained color, familiar Windows desktop affordances, and a consistent Inter hierarchy. It explicitly rejects RGB-heavy gamer software, neon cyberpunk decoration, bloated GPU control panels, ornamental dashboards, and ambiguous state.",
+    "keyCharacteristics": [
+      "Near-black structural surfaces with subtle tonal separation.",
+      "Blurple reserved for focus, selection, and primary action.",
+      "Compact controls built on an 8px spacing rhythm.",
+      "Direct copy that distinguishes resolution state from monitor state.",
+      "Motion used only to confirm state changes."
+    ],
+    "rules": [
+      { "name": "The Signal Rule", "body": "Blurple communicates action or state. It is never ambient decoration.", "section": "colors" },
+      { "name": "The Existing Palette Rule", "body": "Preserve the current black, graphite, neutral-white, blurple, and red values during the overhaul.", "section": "colors" },
+      { "name": "The Data First Rule", "body": "Resolution and refresh values receive the strongest type; explanatory copy never competes with them.", "section": "typography" },
+      { "name": "The Flat Interior Rule", "body": "Internal surfaces use tone and borders, never stacks of shadows.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do preserve the exact existing palette tokens during the overhaul.",
+      "Do make current display, resolution, refresh rate, and monitor state visible together.",
+      "Do keep resolution actions and monitor power-state actions explicitly separate.",
+      "Do provide keyboard navigation, visible focus, non-color cues, and reduced-motion behavior.",
+      "Do use concise, technically accurate labels such as ‘Quick Picks’ instead of unsupported testing claims."
+    ],
+    "donts": [
+      "Don't build RGB-heavy gamer software, neon cyberpunk decoration, or a bloated GPU control panel.",
+      "Don't obscure important display state behind an ornamental dashboard or ambiguous label.",
+      "Don't use colored side-stripe borders on cards, monitor rows, callouts, or alerts.",
+      "Don't use gradient text, decorative glass effects, nested cards, or identical card-grid sprawl.",
+      "Don't let hotkeys or ordinary resolution actions enable or disable hardware monitors.",
+      "Don't use decorative motion or bounce/elastic easing; motion must communicate state and respect reduced motion."
+    ]
+  }
+}

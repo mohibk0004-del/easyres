@@ -158,7 +158,7 @@ def get_supported_resolutions(device_name=None):
     # Format and label them
     result = []
     for w, h in sorted(list(modes), key=lambda x: x[0]*x[1], reverse=True):
-        ratio_str = "4:3" if abs((w/h) - 4/3) < 0.05 else "5:4"
+        ratio_str = get_aspect_ratio(w, h)
         result.append((w, h, ratio_str, "", False))
     return result
 

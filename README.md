@@ -50,6 +50,10 @@ If you wish to compile the application from source rather than running the raw P
    ```
 4. The standalone, portable executable will be generated in the `dist/` directory as `EasyRes.exe`.
 
+### Publishing Updates
+
+Bump `CURRENT_VERSION` in `updater.py`, then attach the packaged binary to each stable GitHub release with the exact asset name `EasyRes.exe`. Packaged builds use that asset for in-app updates, validate its published size and GitHub SHA-256 digest when available, then replace and restart the application with rollback protection.
+
 ## Technical Architecture
 
 * **Frontend:** PyQt6 with completely custom painted widgets, frameless window resizing hooks (`WM_NCHITTEST`), and `QPropertyAnimation`.

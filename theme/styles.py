@@ -34,12 +34,12 @@ def title_bar_qss() -> str:
 
 
 def section_card_qss(warning: bool = False) -> str:
-    border_left = f"border-left: 3px solid {t.ACCENT_PRIMARY};" if warning else ""
+    border = t.ACCENT_MUTED_BORDER if warning else t.BORDER_SUBTLE
+    bg = t.BG_CARD if warning else t.BG_ELEVATED
     return f"""
-        background-color: {t.BG_ELEVATED};
+        background-color: {bg};
         border-radius: {t.RADIUS_LG}px;
-        border: 1px solid {t.BORDER_SUBTLE};
-        {border_left}
+        border: 1px solid {border};
     """
 
 
@@ -48,6 +48,33 @@ def resolution_hero_qss() -> str:
         background-color: {t.BG_ELEVATED};
         border-radius: {t.RADIUS_XL}px;
         border: 1px solid {t.BORDER_SUBTLE};
+    """
+
+
+def console_panel_qss() -> str:
+    return f"""
+        background-color: {t.BG_ELEVATED};
+        border-radius: {t.RADIUS_LG}px;
+        border: 1px solid {t.BORDER_SUBTLE};
+    """
+
+
+def stat_pill_qss() -> str:
+    return f"""
+        background-color: {t.BG_CARD};
+        border-radius: {t.RADIUS_MD}px;
+        border: 1px solid {t.BORDER_DEFAULT};
+    """
+
+
+def stat_value_qss(accent: bool = False, warning: bool = False) -> str:
+    color = t.DESTRUCTIVE if warning else (t.ACCENT_PRIMARY if accent else t.TEXT_PRIMARY)
+    return f"""
+        color: {color};
+        font-size: {t.FONT_XL}px;
+        font-weight: 700;
+        border: none;
+        background: transparent;
     """
 
 
@@ -126,7 +153,8 @@ def button_qss(primary: bool = False, destructive: bool = False) -> str:
             color: {t.TEXT_PRIMARY};
             font-size: {t.FONT_MD}px;
             font-weight: 600;
-            padding: 10px;
+            min-height: 22px;
+            padding: 10px 14px;
         }}
         QPushButton:hover {{
             background-color: {hover_bg};
@@ -138,6 +166,11 @@ def button_qss(primary: bool = False, destructive: bool = False) -> str:
         }}
         QPushButton:focus {{
             border: 2px solid {t.ACCENT_PRIMARY};
+        }}
+        QPushButton:disabled {{
+            background-color: {t.BG_CARD};
+            border: 1px solid {t.BORDER_SUBTLE};
+            color: {t.TEXT_MUTED};
         }}
     """
 
@@ -219,6 +252,26 @@ def preset_card_label_qss(primary: bool = True) -> str:
     return f"color: rgba(134, 134, 139, 0.7); font-size: {t.FONT_XS}px; font-weight: 500; border: none; background: transparent;"
 
 
+def mode_row_qss(is_active: bool = False, is_custom: bool = False) -> str:
+    bg = t.BG_CARD_CUSTOM if is_custom else t.BG_CARD
+    border = t.ACCENT_MUTED_BORDER if is_active else t.BORDER_DEFAULT
+    return f"""
+        QWidget {{
+            background-color: {bg};
+            border: 1px solid {border};
+            border-radius: {t.RADIUS_MD}px;
+        }}
+        QWidget:hover {{
+            background-color: {t.BG_CARD_HOVER};
+            border: 1px solid {t.BORDER_HOVER};
+        }}
+        QLabel {{
+            border: none;
+            background: transparent;
+        }}
+    """
+
+
 def input_qss(error: bool = False) -> str:
     border_color = t.DESTRUCTIVE if error else t.BORDER_DEFAULT
     focus_border = t.DESTRUCTIVE if error else t.ACCENT_PRIMARY
@@ -228,8 +281,9 @@ def input_qss(error: bool = False) -> str:
             border: 1px solid {border_color};
             border-radius: {t.RADIUS_MD}px;
             color: {t.TEXT_PRIMARY};
-            padding: 6px;
-            font-size: 12px;
+            min-height: 22px;
+            padding: 8px 10px;
+            font-size: {t.FONT_MD}px;
         }}
         QLineEdit:focus {{
             border: 2px solid {focus_border};
@@ -246,8 +300,9 @@ def combo_qss(elevated: bool = False) -> str:
             border: 1px solid {border};
             border-radius: {t.RADIUS_SM if elevated else t.RADIUS_MD}px;
             color: {t.TEXT_PRIMARY};
-            padding: 4px 8px;
-            font-size: 12px;
+            min-height: 22px;
+            padding: 7px 10px;
+            font-size: {t.FONT_MD}px;
         }}
         QComboBox:focus {{
             border: 2px solid {t.ACCENT_PRIMARY};
@@ -315,7 +370,7 @@ def menu_qss() -> str:
             padding: 4px;
         }}
         QMenu::item {{
-            padding: 6px 20px;
+            padding: 8px 22px;
             border-radius: 4px;
         }}
         QMenu::item:selected {{
@@ -338,7 +393,8 @@ def message_box_qss() -> str:
             background-color: {t.BG_CARD_HOVER};
             color: {t.TEXT_PRIMARY};
             border: 1px solid {t.BORDER_DEFAULT};
-            padding: 6px 16px;
+            min-height: 22px;
+            padding: 8px 18px;
             border-radius: {t.RADIUS_SM}px;
             min-width: 70px;
         }}

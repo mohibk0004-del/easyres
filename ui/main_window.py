@@ -2,9 +2,6 @@ import sys
 import os
 import ctypes
 import threading
-import urllib.request
-import json
-import webbrowser
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -16,24 +13,18 @@ from PyQt6.QtGui import QColor, QIntValidator, QIcon, QPixmap
 
 from theme import tokens as t
 from theme import styles
-from ui.widgets import PremiumToggle, ActionButton, IconButton, SectionLabel, ResolutionHero, PresetCard
+from ui.widgets import (
+    PremiumToggle, ActionButton, IconButton, SectionLabel, StatPill, ModeRow
+)
 from ui.dialogs import SettingsDialog, TutorialDialog, themed_message_box
 import resolution
 import edid
 import driver
+import updater
 
-APP_VERSION = "2.1.4"
 WM_HOTKEY = 0x0312
 HOTKEY_ID_TOGGLE = 1
 DEFAULT_HOTKEY_VK = 0x75
-
-def is_newer_version(latest, current):
-    try:
-        l_parts = [int(x) for x in latest.split('.')]
-        c_parts = [int(x) for x in current.split('.')]
-        return l_parts > c_parts
-    except:
-        return latest != current
 
 from ctypes import wintypes
 from PyQt6.QtCore import QAbstractNativeEventFilter
@@ -53,14 +44,17 @@ class HotkeyEventFilter(QAbstractNativeEventFilter):
         return False, 0
 
 class MainWindow(QMainWindow):
-    update_available = pyqtSignal(str)
+    update_available = pyqtSignal(object)
+    update_progress = pyqtSignal(int)
+    update_ready = pyqtSignal(object)
+    update_failed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.resize(720, 850)
-        self.setMinimumSize(400, 400)
+        self.resize(1180, 790)
+        self.setMinimumSize(1000, 660)
         self.offset = None
         self.displays = resolution.get_displays()
         for d in self.displays:
@@ -80,6 +74,9 @@ class MainWindow(QMainWindow):
         
         QTimer.singleShot(500, self.check_first_run)
         self.update_available.connect(self.show_update_notification)
+        self.update_progress.connect(self.on_update_progress)
+        self.update_ready.connect(self.on_update_ready)
+        self.update_failed.connect(self.on_update_failed)
         threading.Thread(target=self.check_for_updates_background, daemon=True).start()
         
         self.setWindowOpacity(0.0)
@@ -120,6 +117,8 @@ class MainWindow(QMainWindow):
         user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
         key_name, vk = self.get_hotkey_config()
         self.hotkey_registered = bool(user32.RegisterHotKey(None, HOTKEY_ID_TOGGLE, 0, vk))
+        if hasattr(self, "hotkey_state_badge"):
+            self._sync_hotkey_labels()
         if hasattr(self, "tray_menu"):
             self.update_tray_menu()
 
@@ -131,6 +130,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("toggle_hotkey_name", key_name)
         self.settings.setValue("toggle_hotkey_vk", vk)
         self.apply_hotkey_setting()
+        self._sync_hotkey_labels()
 
     def toggle_stretch_native_hotkey(self):
         dev = self.get_dev_name()
@@ -150,7 +150,7 @@ class MainWindow(QMainWindow):
                 "w": current["width"], "h": current["height"], "hz": current.get("hz")
             }
             self._save_last_stretch_modes()
-            self.reset_res(enable_monitors=True)
+            self.reset_res(enable_monitors=False)
             return
 
         target = self.settings.value("hotkey_target_res", None)
@@ -185,55 +185,147 @@ class MainWindow(QMainWindow):
 
     def check_for_updates_background(self):
         try:
-            req = urllib.request.Request("https://api.github.com/repos/mohibk0004-del/easyres/releases/latest")
-            req.add_header('User-Agent', 'EasyRes-App')
-            with urllib.request.urlopen(req, timeout=5) as response:
-                data = json.loads(response.read().decode())
-                latest_version = data.get("tag_name", "").lstrip("v")
-                if latest_version and is_newer_version(latest_version, APP_VERSION):
-                    self.update_available.emit(latest_version)
-        except: pass
+            release = updater.fetch_latest_release()
+            latest_version = release.get("tag_name", "").lstrip("v")
+            if latest_version and updater.is_newer_version(latest_version, updater.CURRENT_VERSION):
+                self.update_available.emit(release)
+        except updater.UpdateError:
+            pass
 
-    def show_update_notification(self, version):
+    def show_update_notification(self, release):
+        self.available_release = release
+        version = release.get("tag_name", "").lstrip("v")
+        if hasattr(self, "update_btn"):
+            self.update_btn.setText(f"Update to {version}")
+            self.update_btn.setEnabled(True)
+            return
         self.update_btn = QPushButton("! Update Available")
-        self.update_btn.setFixedHeight(24)
+        self.update_btn.setFixedHeight(30)
         self.update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.update_btn.setStyleSheet(f"QPushButton {{ background-color: {t.DESTRUCTIVE}; color: white; border-radius: 12px; font-weight: bold; font-size: 11px; padding: 0 12px; }} QPushButton:hover {{ background-color: {t.DESTRUCTIVE_HOVER}; }}")
-        self.update_btn.clicked.connect(lambda: webbrowser.open("https://github.com/mohibk0004-del/easyres/releases/latest"))
+        self.update_btn.setText(f"Update to {version}")
+        self.update_btn.setToolTip("Download, install, and restart EasyRes")
+        self.update_btn.setStyleSheet(f"QPushButton {{ background-color: {t.ACCENT_PRIMARY}; color: {t.TEXT_PRIMARY}; border-radius: 12px; font-weight: bold; font-size: 11px; padding: 0 14px; }} QPushButton:hover {{ background-color: {t.ACCENT_HOVER}; }} QPushButton:disabled {{ background-color: {t.BG_CARD_HOVER}; color: {t.TEXT_MUTED}; }}")
+        self.update_btn.clicked.connect(self.prompt_update)
         self.title_layout.insertWidget(self.title_layout.indexOf(self.settings_btn), self.update_btn)
 
+    def prompt_update(self):
+        release = getattr(self, "available_release", None)
+        if not release:
+            return
+        if not updater.can_self_update():
+            themed_message_box(
+                self,
+                "Update Unavailable",
+                "Automatic updates are available in the packaged EasyRes.exe build.",
+                QMessageBox.Icon.Information,
+            )
+            return
+        try:
+            asset = updater.select_windows_asset(release)
+        except updater.UpdateError as exc:
+            themed_message_box(self, "Update Unavailable", str(exc), QMessageBox.Icon.Warning)
+            return
+
+        version = release.get("tag_name", "").lstrip("v")
+        size_mb = int(asset.get("size") or 0) / (1024 * 1024)
+        reply = themed_message_box(
+            self,
+            "Install EasyRes Update",
+            f"EasyRes {version} is ready to download ({size_mb:.1f} MB).\n\nEasyRes will close, replace itself, and restart. Install now?",
+            QMessageBox.Icon.Question,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.start_update(release)
+
+    def start_update(self, release):
+        if getattr(self, "_update_in_progress", False):
+            return
+        self._update_in_progress = True
+        self.show_update_notification(release)
+        self.update_btn.setEnabled(False)
+        self.update_btn.setText("Downloading 0%")
+        threading.Thread(target=self._download_update, args=(release,), daemon=True).start()
+
+    def _download_update(self, release):
+        try:
+            asset = updater.select_windows_asset(release)
+            downloaded_update = updater.download_asset(asset, self.update_progress.emit)
+            self.update_ready.emit(downloaded_update)
+        except Exception as exc:
+            self.update_failed.emit(str(exc))
+
+    def on_update_progress(self, percent):
+        if hasattr(self, "update_btn"):
+            self.update_btn.setText(f"Downloading {percent}%")
+
+    def on_update_ready(self, downloaded_update):
+        if hasattr(self, "update_btn"):
+            self.update_btn.setText("Restarting…")
+        try:
+            updater.launch_replacement(downloaded_update)
+        except updater.UpdateError as exc:
+            updater.discard_download(downloaded_update)
+            self.on_update_failed(str(exc))
+            return
+
+        self._quit_app()
+
+    def on_update_failed(self, message):
+        self._update_in_progress = False
+        if hasattr(self, "update_btn"):
+            version = getattr(self, "available_release", {}).get("tag_name", "").lstrip("v")
+            self.update_btn.setText(f"Update to {version}" if version else "Update Available")
+            self.update_btn.setEnabled(True)
+        themed_message_box(self, "Update Failed", message, QMessageBox.Icon.Warning)
+
+    def _quit_app(self):
+        self._quitting = True
+        ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
+        if hasattr(self, "tray_icon"):
+            self.tray_icon.hide()
+        QApplication.instance().quit()
+
     def closeEvent(self, event):
-        if self.settings.value("minimize_to_tray", False, type=bool):
+        if getattr(self, "_quitting", False):
+            event.accept()
+            return
+
+        ask_close = self.settings.value("ask_close", True, type=bool)
+        if not ask_close and self.settings.value("minimize_to_tray", False, type=bool):
             event.ignore()
             self.hide()
-        elif self.settings.value("dont_ask_tray_close", False, type=bool):
-            ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
-            self.tray_icon.hide()
-            QApplication.instance().quit()
-        else:
-            reply, cb_checked = themed_message_box(
-                self, "EasyRes", 
-                "Do you want to minimize to the system tray instead of closing?", 
-                QMessageBox.Icon.Question,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                "Don't ask again"
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                if cb_checked:
-                    self.settings.setValue("minimize_to_tray", True)
-                event.ignore()
-                self.hide()
-            elif reply == QMessageBox.StandardButton.No:
-                if cb_checked:
-                    self.settings.setValue("dont_ask_tray_close", True)
-                ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID_TOGGLE)
-                self.tray_icon.hide()
-                QApplication.instance().quit()
-            else:
-                event.ignore()
+            return
+        if not ask_close:
+            event.accept()
+            self._quit_app()
+            return
 
-    def init_ui(self):
+        reply, dont_ask = themed_message_box(
+            self,
+            "EasyRes",
+            "Do you want to minimize to the system tray instead of closing?",
+            QMessageBox.Icon.Question,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            "Don't ask again",
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            if dont_ask:
+                self.settings.setValue("minimize_to_tray", True)
+                self.settings.setValue("ask_close", False)
+            event.ignore()
+            self.hide()
+        elif reply == QMessageBox.StandardButton.No:
+            if dont_ask:
+                self.settings.setValue("minimize_to_tray", False)
+                self.settings.setValue("ask_close", False)
+            event.accept()
+            self._quit_app()
+        else:
+            event.ignore()
+
+    def init_ui_legacy(self):
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
@@ -336,8 +428,8 @@ class MainWindow(QMainWindow):
         custom_res_header_layout = QHBoxLayout()
         lbl_custom_res = QLabel("ADD RESOLUTION")
         lbl_custom_res.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_MD}px; font-weight: 700; margin-top: 12px;")
-        self.lbl_experimental = QLabel("SAFE CATALOG")
-        self.lbl_experimental.setStyleSheet(f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_XS}px; font-weight: 700; background-color: {t.ACCENT_MUTED_BG}; border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
+        self.lbl_experimental = QLabel("QUICK PICKS")
+        self.lbl_experimental.setStyleSheet(f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_XS}px; font-weight: 700; background-color: {t.ACCENT_MUTED_BG}; border-radius: 7px; padding: 5px 9px; margin-top: 12px;")
         custom_res_header_layout.addWidget(lbl_custom_res)
         custom_res_header_layout.addWidget(self.lbl_experimental)
         custom_res_header_layout.addStretch()
@@ -350,7 +442,7 @@ class MainWindow(QMainWindow):
         add_layout.setSpacing(t.SPACE_MD)
         
         safe_row = QHBoxLayout()
-        safe_lbl = SectionLabel("TESTED 1080P MODE")
+        safe_lbl = SectionLabel("COMMON STRETCHED MODE")
         self.safe_res_combo = QComboBox()
         self.safe_res_combo.setStyleSheet(styles.combo_qss())
         for width, height in resolution.VALORANT_SAFE_RESOLUTIONS:
@@ -430,7 +522,7 @@ class MainWindow(QMainWindow):
         row2.addWidget(btn_add_pc)
         add_layout.addLayout(row2)
         
-        self.custom_safety_note = QLabel("Uses a tested 4:3 or 5:4 mode. Refresh rates come directly from your monitor's available modes.")
+        self.custom_safety_note = QLabel("Common 4:3 and 5:4 quick picks. Refresh rates come directly from your monitor's available modes.")
         self.custom_safety_note.setWordWrap(True)
         self.custom_safety_note.setStyleSheet(f"color: {t.TEXT_MUTED}; font-size: {t.FONT_SM}px; padding-top: 2px; border: none; background: transparent;")
         add_layout.addWidget(self.custom_safety_note)
@@ -463,7 +555,7 @@ class MainWindow(QMainWindow):
         hotkey_row.addWidget(self.hotkey_input)
         add_layout.addLayout(hotkey_row)
         
-        hotkey_hint = QLabel("CS-style quick switch: toggles between your current stretch mode and native resolution with monitor enabled.")
+        hotkey_hint = QLabel("CS-style quick switch: toggles between your current stretch mode and native resolution without changing monitor state.")
         hotkey_hint.setWordWrap(True)
         hotkey_hint.setStyleSheet(f"color: {t.TEXT_MUTED}; font-size: {t.FONT_SM}px; border: none; background: transparent;")
         add_layout.addWidget(hotkey_hint)
@@ -550,13 +642,381 @@ class MainWindow(QMainWindow):
         self.tray_icon.activated.connect(self.on_tray_activated)
         self.tray_icon.show()
 
-    def _update_hw_box_style(self):
+    def init_ui(self):
+        central_widget = QWidget(self)
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+
+        self.container = QWidget()
+        self.container.setObjectName("Container")
+        self.container.setStyleSheet(styles.dialog_container_qss())
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(t.SHADOW_BLUR)
+        shadow.setColor(QColor(t.SHADOW_COLOR))
+        shadow.setOffset(0, t.SHADOW_OFFSET_Y)
+        self.container.setGraphicsEffect(shadow)
+
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+
+        title_bar = QWidget()
+        title_bar.setFixedHeight(52)
+        title_bar.setStyleSheet(styles.title_bar_qss())
+        self.title_layout = QHBoxLayout(title_bar)
+        self.title_layout.setContentsMargins(t.SPACE_LG, 0, t.SPACE_SM, 0)
+
+        logo = QLabel()
+        logo.setFixedSize(18, 18)
+        try:
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        icon_path_png = os.path.join(base_path, "icon.png")
+        if os.path.exists(icon_path_png):
+            logo.setPixmap(QPixmap(icon_path_png).scaled(18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+        title_label = QLabel("EasyRes")
+        title_label.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-weight: bold; font-size: {t.FONT_LG}px; border: none; background: transparent;")
+        subtitle_label = QLabel("MATCH CONSOLE")
+        subtitle_label.setStyleSheet(styles.section_label_qss())
+
+        self.settings_btn = IconButton("settings.svg", "Settings", "Settings")
+        self.settings_btn.clicked.connect(self.show_settings)
+        help_btn = IconButton("help.svg", "Tutorial", "Help")
+        help_btn.clicked.connect(self.show_tutorial)
+        min_btn = IconButton("minimize.svg", "Minimize", "Minimize")
+        min_btn.clicked.connect(self.showMinimized)
+        self.max_btn = IconButton("maximize.svg", "Maximize", "Maximize")
+        self.max_btn.clicked.connect(self.toggle_maximize)
+        close_btn = IconButton("close.svg", "Close", "Close")
+        close_btn.clicked.connect(self.close)
+
+        self.title_layout.addWidget(logo)
+        self.title_layout.addSpacing(t.SPACE_SM)
+        self.title_layout.addWidget(title_label)
+        self.title_layout.addSpacing(t.SPACE_MD)
+        self.title_layout.addWidget(subtitle_label)
+        self.title_layout.addStretch()
+        self.title_layout.addWidget(self.settings_btn)
+        self.title_layout.addWidget(help_btn)
+        self.title_layout.addWidget(min_btn)
+        self.title_layout.addWidget(self.max_btn)
+        self.title_layout.addWidget(close_btn)
+
+        title_bar.mousePressEvent = self.title_press
+        title_bar.mouseMoveEvent = self.title_move
+        title_bar.mouseDoubleClickEvent = self.title_double_click
+        container_layout.addWidget(title_bar)
+
+        body_scroll = QScrollArea()
+        body_scroll.setWidgetResizable(True)
+        body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body_scroll.setStyleSheet(styles.scrollbar_qss())
+
+        body_widget = QWidget()
+        body_widget.setStyleSheet("background: transparent;")
+        body_layout = QVBoxLayout(body_widget)
+        body_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+        body_layout.setSpacing(t.SPACE_LG)
+
+        display_row = QHBoxLayout()
+        display_row.addWidget(SectionLabel("DISPLAY"))
+        self.mon_combo = QComboBox()
+        self.mon_combo.setStyleSheet(styles.combo_qss())
+        for d in self.displays:
+            clean_name = d['string'] if d['string'] else d['name']
+            primary = " (Primary)" if d['primary'] else ""
+            self.mon_combo.addItem(f"{clean_name}{primary}", d['name'])
+        self.mon_combo.currentIndexChanged.connect(self.on_monitor_changed)
+        display_row.addWidget(self.mon_combo, 1)
+        self.hotkey_status_title = QLabel("Hotkey: --")
+        self.hotkey_status_title.setStyleSheet(styles.body_label_qss())
+        display_row.addWidget(self.hotkey_status_title)
+        body_layout.addLayout(display_row)
+
+        status_band = QWidget()
+        status_band.setStyleSheet(styles.console_panel_qss())
+        status_layout = QHBoxLayout(status_band)
+        status_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+        status_layout.setSpacing(t.SPACE_LG)
+        self.stat_resolution = StatPill("CURRENT", "--")
+        self.stat_refresh = StatPill("REFRESH", "--")
+        self.stat_mode = StatPill("MODE", "--")
+        self.stat_monitor = StatPill("MONITOR STATE", "--")
+        status_layout.addWidget(self.stat_resolution, 2)
+        status_layout.addWidget(self.stat_refresh, 1)
+        status_layout.addWidget(self.stat_mode, 1)
+        status_layout.addWidget(self.stat_monitor, 1)
+        body_layout.addWidget(status_band)
+
+        workspace_row = QHBoxLayout()
+        workspace_row.setSpacing(t.SPACE_LG)
+        body_layout.addLayout(workspace_row, 1)
+
+        browser_panel = QWidget()
+        browser_panel.setStyleSheet(styles.console_panel_qss())
+        browser_panel.setMinimumWidth(560)
+        browser_layout = QVBoxLayout(browser_panel)
+        browser_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+        browser_layout.setSpacing(t.SPACE_MD)
+        browser_header = QHBoxLayout()
+        browser_header.addWidget(SectionLabel("RESOLUTION BROWSER"))
+        browser_header.addStretch()
+        self.mode_count_label = QLabel("0 modes")
+        self.mode_count_label.setStyleSheet(styles.muted_label_qss(t.FONT_SM))
+        browser_header.addWidget(self.mode_count_label)
+        browser_layout.addLayout(browser_header)
+
+        self.mode_search = QLineEdit()
+        self.mode_search.setPlaceholderText("Search modes")
+        self.mode_search.setClearButtonEnabled(True)
+        self.mode_search.setStyleSheet(styles.input_qss())
+        self.mode_search.textChanged.connect(lambda _text: self.layout_presets_grid())
+        browser_layout.addWidget(self.mode_search)
+
+        self.mode_scroll = QScrollArea()
+        self.mode_scroll.setWidgetResizable(True)
+        self.mode_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.mode_scroll.setMinimumHeight(220)
+        self.mode_scroll.setStyleSheet(styles.scrollbar_qss())
+        self.presets_grid_widget = QWidget()
+        self.presets_grid_widget.setStyleSheet("background: transparent;")
+        self.presets_grid = QVBoxLayout(self.presets_grid_widget)
+        self.presets_grid.setContentsMargins(0, 0, 0, 0)
+        self.presets_grid.setSpacing(t.SPACE_SM)
+        self.mode_scroll.setWidget(self.presets_grid_widget)
+        browser_layout.addWidget(self.mode_scroll, 1)
+        workspace_row.addWidget(browser_panel, 6)
+
+        side_panel_widget = QWidget()
+        side_panel_widget.setStyleSheet("background: transparent;")
+        side_panel_widget.setMinimumWidth(340)
+        side_panel = QVBoxLayout(side_panel_widget)
+        side_panel.setContentsMargins(0, 0, 0, 0)
+        side_panel.setSpacing(t.SPACE_LG)
+        workspace_row.addWidget(side_panel_widget, 4)
+
+        quick_box = QWidget()
+        quick_box.setStyleSheet(styles.console_panel_qss())
+        quick_layout = QVBoxLayout(quick_box)
+        quick_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+        quick_layout.setSpacing(t.SPACE_MD)
+        quick_header = QHBoxLayout()
+        quick_header.addWidget(SectionLabel("QUICK TOGGLE"))
+        quick_header.addStretch()
+        self.hotkey_state_badge = QLabel("UNREGISTERED")
+        self.hotkey_state_badge.setStyleSheet(f"color: {t.TEXT_MUTED}; font-size: {t.FONT_SM}px; font-weight: 700; background-color: {t.BG_CARD}; border: 1px solid {t.BORDER_DEFAULT}; border-radius: 7px; padding: 5px 9px;")
+        quick_header.addWidget(self.hotkey_state_badge)
+        quick_layout.addLayout(quick_header)
+
+        hotkey_row = QHBoxLayout()
+        self.hotkey_target_combo = QComboBox()
+        self.hotkey_target_combo.setToolTip("Select the stretch resolution for the hotkey.")
+        self.hotkey_target_combo.setStyleSheet(styles.combo_qss())
+        self.hotkey_target_combo.currentIndexChanged.connect(self.on_hotkey_target_changed)
+        self.hotkey_input = QComboBox()
+        self.hotkey_input.setToolTip("Choose a function key from F1 to F12 for the global toggle.")
+        self.hotkey_input.setFixedWidth(92)
+        for function_key in range(1, 13):
+            self.hotkey_input.addItem(f"F{function_key}", 0x6F + function_key)
+        self.hotkey_input.setStyleSheet(styles.combo_qss())
+        _current_name, current_vk = self.get_hotkey_config()
+        self.hotkey_input.setCurrentIndex(current_vk - 0x70)
+        self.hotkey_input.currentIndexChanged.connect(self.on_hotkey_changed)
+        hotkey_row.addWidget(self.hotkey_target_combo, 1)
+        hotkey_row.addWidget(self.hotkey_input)
+        quick_layout.addLayout(hotkey_row)
+        hotkey_hint = QLabel("Resolution only. Hotkey never changes hardware monitor state.")
+        hotkey_hint.setWordWrap(True)
+        hotkey_hint.setStyleSheet(styles.muted_label_qss(t.FONT_SM))
+        quick_layout.addWidget(hotkey_hint)
+        side_panel.addWidget(quick_box)
+
+        add_box = QWidget()
+        add_box.setStyleSheet(styles.console_panel_qss())
+        add_layout = QVBoxLayout(add_box)
+        add_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+        add_layout.setSpacing(t.SPACE_MD)
+        custom_res_header_layout = QHBoxLayout()
+        custom_res_header_layout.addWidget(SectionLabel("ADVANCED RESOLUTION"))
+        self.lbl_experimental = QLabel("QUICK PICKS")
+        self.lbl_experimental.setStyleSheet(f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_XS}px; font-weight: 700; background-color: {t.ACCENT_MUTED_BG}; border-radius: 7px; padding: 5px 9px;")
+        custom_res_header_layout.addWidget(self.lbl_experimental)
+        custom_res_header_layout.addStretch()
+        add_layout.addLayout(custom_res_header_layout)
+
+        safe_row = QHBoxLayout()
+        safe_row.addWidget(SectionLabel("COMMON STRETCHED MODE"))
+        self.safe_res_combo = QComboBox()
+        self.safe_res_combo.setStyleSheet(styles.combo_qss())
+        for width, height in resolution.VALORANT_SAFE_RESOLUTIONS:
+            ratio = resolution.get_aspect_ratio(width, height)
+            self.safe_res_combo.addItem(f"{width} x {height} / {ratio}", (width, height))
+        self.safe_res_combo.currentIndexChanged.connect(self.on_safe_resolution_changed)
+        safe_row.addWidget(self.safe_res_combo, 1)
+        add_layout.addLayout(safe_row)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(t.SPACE_SM)
+        self.inp_name = QLineEdit()
+        self.inp_name.setPlaceholderText("Custom Name")
+        self.inp_rw = QLineEdit()
+        self.inp_rw.setPlaceholderText("Width")
+        self.inp_rw.setValidator(QIntValidator(100, 10000))
+        self.inp_rw.setFixedWidth(72)
+        self.inp_rh = QLineEdit()
+        self.inp_rh.setPlaceholderText("Height")
+        self.inp_rh.setValidator(QIntValidator(100, 10000))
+        self.inp_rh.setFixedWidth(72)
+        self.inp_hz = QComboBox()
+        self.inp_hz.setToolTip("Refresh rates exposed by this monitor for the selected resolution")
+        self.inp_hz.setFixedWidth(96)
+        self.inp_hz.addItem("Select Hz", None)
+        btn_add = ActionButton("Add", primary=True)
+        btn_add.setFixedWidth(72)
+        btn_add.clicked.connect(self.add_custom_resolution)
+        for inp in (self.inp_name, self.inp_rw, self.inp_rh):
+            inp.setStyleSheet(styles.input_qss())
+        self.inp_hz.setStyleSheet(styles.combo_qss())
+        self.inp_rw.textChanged.connect(self.update_custom_hz_options)
+        self.inp_rh.textChanged.connect(self.update_custom_hz_options)
+        row1.addWidget(self.inp_name)
+        row1.addWidget(self.inp_rw)
+        row1.addWidget(QLabel("x"))
+        row1.addWidget(self.inp_rh)
+        row1.addWidget(self.inp_hz)
+        row1.addWidget(btn_add)
+        add_layout.addLayout(row1)
+
+        self.experimental_toggle = QCheckBox("Enable experimental resolution")
+        self.experimental_toggle.setStyleSheet(f"""
+            QCheckBox {{ color: {t.TEXT_MUTED}; font-size: {t.FONT_MD}px; font-weight: 600; spacing: 8px; border: none; background: transparent; }}
+            QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {t.BORDER_DEFAULT}; border-radius: 5px; background: {t.BG_CARD}; }}
+            QCheckBox::indicator:checked {{ background: {t.ACCENT_PRIMARY}; border-color: {t.ACCENT_HOVER}; }}
+        """)
+        self.experimental_toggle.toggled.connect(self.set_experimental_mode)
+        add_layout.addWidget(self.experimental_toggle)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(t.SPACE_SM)
+        lbl_pc = QLabel("Add existing")
+        lbl_pc.setStyleSheet(styles.muted_label_qss())
+        self.pc_res_combo = QComboBox()
+        self.pc_res_combo.setStyleSheet(styles.combo_qss())
+        self.pc_hz_combo = QComboBox()
+        self.pc_hz_combo.setStyleSheet(styles.combo_qss())
+        self.pc_hz_combo.setFixedWidth(96)
+        self.pc_res_combo.currentIndexChanged.connect(self.on_pc_resolution_changed)
+        btn_add_pc = ActionButton("Add")
+        btn_add_pc.setFixedWidth(72)
+        btn_add_pc.clicked.connect(self.add_pc_resolution)
+        row2.addWidget(lbl_pc)
+        row2.addWidget(self.pc_res_combo, 1)
+        row2.addWidget(self.pc_hz_combo)
+        row2.addWidget(btn_add_pc)
+        add_layout.addLayout(row2)
+
+        self.custom_safety_note = QLabel("Common 4:3 and 5:4 quick picks. Refresh rates come directly from your monitor's available modes.")
+        self.custom_safety_note.setWordWrap(True)
+        self.custom_safety_note.setStyleSheet(styles.muted_label_qss(t.FONT_SM))
+        add_layout.addWidget(self.custom_safety_note)
+        oled_warning = QLabel("OLED warning: avoid stretch and monitor-toggle workflows on OLED panels.")
+        oled_warning.setWordWrap(True)
+        oled_warning.setStyleSheet(f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_SM}px; border: none; background: transparent;")
+        add_layout.addWidget(oled_warning)
+        self.set_experimental_mode(False)
+        self.on_safe_resolution_changed()
+        side_panel.addWidget(add_box)
+
+        hw_panel = QWidget()
+        hw_panel.setStyleSheet(styles.console_panel_qss())
+        hw_panel_layout = QVBoxLayout(hw_panel)
+        hw_panel_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+        hw_panel_layout.setSpacing(t.SPACE_MD)
+        hw_panel_layout.addWidget(SectionLabel("HARDWARE MONITORS"))
+        self.hw_toggles = []
+        hw_monitors = resolution.get_hardware_monitors()
+        if not hw_monitors:
+            no_hw = QLabel("No hardware monitors detected.")
+            no_hw.setStyleSheet(styles.muted_label_qss())
+            hw_panel_layout.addWidget(no_hw)
+        else:
+            self.hw_box = QWidget()
+            self.hw_box.setStyleSheet(styles.section_card_qss())
+            hw_layout = QVBoxLayout(self.hw_box)
+            hw_layout.setContentsMargins(t.SPACE_LG, t.SPACE_MD, t.SPACE_LG, t.SPACE_MD)
+            for hw in hw_monitors:
+                row_layout = QHBoxLayout()
+                lbl = QLabel(hw.get("Device Description", "Unknown Monitor"))
+                lbl.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_MD}px; font-weight: bold; border: none;")
+                toggle = PremiumToggle()
+                toggle.setChecked(hw.get("Status", "").lower() != "disabled", emit=False)
+
+                def make_toggle_handler(instance_id, toggle_widget):
+                    def handler():
+                        en = toggle_widget.isChecked()
+                        success = resolution.set_hardware_monitor_state(instance_id, en)
+                        if not success:
+                            themed_message_box(self, "Error", "Failed to change hardware state. Run as Admin?", QMessageBox.Icon.Warning)
+                            toggle_widget.setChecked(not en, emit=False)
+                        self._update_hw_box_style()
+                        self.refresh_display()
+                    return handler
+
+                toggle.toggled.connect(make_toggle_handler(hw.get("Instance ID", ""), toggle))
+                row_layout.addWidget(lbl)
+                row_layout.addStretch()
+                row_layout.addWidget(toggle)
+                hw_layout.addLayout(row_layout)
+                self.hw_toggles.append((hw.get("Instance ID", ""), toggle))
+            hw_panel_layout.addWidget(self.hw_box)
+            self._update_hw_box_style()
+        side_panel.addWidget(hw_panel)
+        side_panel.addStretch()
+
+        body_scroll.setWidget(body_widget)
+        container_layout.addWidget(body_scroll)
+
+        reset_bar = QWidget()
+        reset_bar.setStyleSheet(f"background-color: {t.BG_ELEVATED}; border-top: 1px solid {t.BORDER_SUBTLE}; border-bottom-left-radius: {t.RADIUS_XL}px; border-bottom-right-radius: {t.RADIUS_XL}px;")
+        reset_layout = QHBoxLayout(reset_bar)
+        reset_layout.setContentsMargins(t.SPACE_LG, t.SPACE_MD, t.SPACE_LG, t.SPACE_MD)
+        reset_layout.setSpacing(t.SPACE_MD)
+        reset_btn = ActionButton("Restore Native")
+        reset_btn.setToolTip("Restore the saved native resolution without changing monitor power state")
+        reset_btn.clicked.connect(lambda: self.reset_res(enable_monitors=False))
+        reset_mon_btn = ActionButton("Restore Native + Enable Monitors", destructive=True)
+        reset_mon_btn.setToolTip("Restore the saved native resolution and enable connected monitors")
+        reset_mon_btn.clicked.connect(lambda: self.reset_res(enable_monitors=True))
+        reset_layout.addWidget(reset_btn)
+        reset_layout.addWidget(reset_mon_btn)
+        container_layout.addWidget(reset_bar)
+
+        main_layout.addWidget(self.container)
+
+        self.grip = QSizeGrip(self)
+        self.grip.resize(20, 20)
+
+        self.tray_icon = QSystemTrayIcon(self)
+        if os.path.exists(icon_path_png):
+            self.tray_icon.setIcon(QIcon(icon_path_png))
+        self.tray_menu = QMenu()
+        self.tray_menu.setStyleSheet(styles.menu_qss())
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.tray_icon.activated.connect(self.on_tray_activated)
+        self.tray_icon.show()
+        self._sync_hotkey_labels()
+
+    def _update_hw_box_style_legacy(self):
         if not hasattr(self, 'hw_box') or not self.hw_toggles: return
         any_disabled = any(not toggle.isChecked() for _, toggle in self.hw_toggles)
         if any_disabled:
-            self.hw_box.setStyleSheet(f"background-color: {t.BG_ELEVATED}; border-radius: {t.RADIUS_LG}px; border: 1px solid {t.BORDER_DEFAULT}; border-left: 3px solid {t.ACCENT_PRIMARY};")
+            self.hw_box.setStyleSheet(styles.section_card_qss(warning=True))
         else:
-            self.hw_box.setStyleSheet(f"background-color: {t.BG_ELEVATED}; border-radius: {t.RADIUS_LG}px; border: 1px solid {t.BORDER_DEFAULT};")
+            self.hw_box.setStyleSheet(styles.section_card_qss())
 
     def title_press(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -599,7 +1059,7 @@ class MainWindow(QMainWindow):
             self.grip.move(self.width() - 20, self.height() - 20)
         self.layout_presets_grid()
         
-    def layout_presets_grid(self):
+    def layout_presets_grid_legacy(self):
         if not hasattr(self, 'presets_grid') or not hasattr(self, '_preset_cards'):
             return
         
@@ -616,7 +1076,7 @@ class MainWindow(QMainWindow):
                 col = 0
                 row += 1
 
-    def load_presets(self):
+    def load_presets_legacy(self):
         dev_name = self.get_dev_name()
         presets_data = resolution.get_supported_resolutions(dev_name)
         if presets_data:
@@ -723,12 +1183,12 @@ class MainWindow(QMainWindow):
             self.inp_name.setPlaceholderText("Custom Name")
         if enabled:
             self.lbl_experimental.setText("EXPERIMENTAL")
-            self.lbl_experimental.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_XS}px; font-weight: 700; background-color: {t.DESTRUCTIVE_MUTED_BG}; border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
+            self.lbl_experimental.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_XS}px; font-weight: 700; background-color: {t.DESTRUCTIVE_MUTED_BG}; border-radius: 7px; padding: 5px 9px; margin-top: 12px;")
             self.custom_safety_note.setText("Highly unsupported and strongly discouraged. Use only if you understand EDID timing risks.")
         else:
-            self.lbl_experimental.setText("SAFE CATALOG")
-            self.lbl_experimental.setStyleSheet(f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_XS}px; font-weight: 700; background-color: {t.ACCENT_MUTED_BG}; border-radius: 7px; padding: 3px 7px; margin-top: 12px;")
-            self.custom_safety_note.setText("Uses a tested 4:3 or 5:4 mode. Refresh rates come directly from your monitor's available modes.")
+            self.lbl_experimental.setText("QUICK PICKS")
+            self.lbl_experimental.setStyleSheet(f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_XS}px; font-weight: 700; background-color: {t.ACCENT_MUTED_BG}; border-radius: 7px; padding: 5px 9px; margin-top: 12px;")
+            self.custom_safety_note.setText("Common 4:3 and 5:4 quick picks. Refresh rates come directly from your monitor's available modes.")
             self.on_safe_resolution_changed()
 
     def update_custom_hz_options(self):
@@ -788,10 +1248,6 @@ class MainWindow(QMainWindow):
         if not self.experimental_toggle.isChecked() and not safe_catalog:
             themed_message_box(self, "Experimental disabled", "Choose a listed 4:3 or 5:4 mode, or explicitly enable Experimental resolution.", QMessageBox.Icon.Warning)
             return
-        if aspect in ("4:3", "5:4") and not safe_catalog:
-            themed_message_box(self, "Unsupported 4:3 / 5:4 mode", "Choose one of EasyRes's tested 1080p catalog resolutions.", QMessageBox.Icon.Warning)
-            return
-
         resolutions = self.settings.value("custom_resolutions", [])
         if not isinstance(resolutions, list):
             resolutions = []
@@ -800,7 +1256,7 @@ class MainWindow(QMainWindow):
                 themed_message_box(self, "Error", "A custom resolution with this name already exists.", QMessageBox.Icon.Warning)
                 return
                 
-        warning = (f"{w_int}×{h_int} is outside the tested 4:3 / 5:4 VALORANT catalog.\n\n"
+        warning = (f"{w_int}×{h_int} is not a standard 4:3 or 5:4 stretch mode.\n\n"
                    "This aspect ratio is highly unsupported, highly discouraged, and experimental. "
                    "It may fail in VALORANT, create black bars, or leave the display unusable until reset.\n\n"
                    "Continue anyway?") if aspect == "Experimental" else (
@@ -942,7 +1398,7 @@ class MainWindow(QMainWindow):
     def get_dev_name(self):
         return self.current_display['name'] if self.current_display else None
 
-    def refresh_display(self):
+    def refresh_display_legacy(self):
         info = resolution.get_current_resolution(self.get_dev_name())
         if info:
             self.hero.set_resolution(info['width'], info['height'], info['hz'])
@@ -1019,7 +1475,7 @@ class MainWindow(QMainWindow):
             QApplication.instance().quit()
         quit_action.triggered.connect(quit_app)
 
-    def populate_pc_resolutions(self):
+    def populate_pc_resolutions_legacy(self):
         if not hasattr(self, 'pc_res_combo'): return
         self.pc_res_combo.blockSignals(True)
         self.pc_res_combo.clear()
@@ -1064,3 +1520,205 @@ class MainWindow(QMainWindow):
         resolutions.append({'name': name, 'w': w, 'h': h, 'hz': hz})
         self.settings.setValue("custom_resolutions", resolutions)
         self.load_presets()
+
+    def _aspect_bucket(self, width, height):
+        if not width or not height:
+            return "Other"
+        ratio = width / height
+        buckets = (
+            ("16:9", 16 / 9),
+            ("16:10", 16 / 10),
+            ("4:3", 4 / 3),
+            ("5:4", 5 / 4),
+            ("21:9", 21 / 9),
+        )
+        for label, target in buckets:
+            if abs(ratio - target) < 0.03:
+                return label
+        return "Other"
+
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            child_layout = item.layout()
+            if child_layout:
+                self._clear_layout(child_layout)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def _sync_hotkey_labels(self):
+        key_name, _ = self.get_hotkey_config()
+        state = "ACTIVE" if self.hotkey_registered else "UNAVAILABLE"
+        if hasattr(self, "hotkey_status_title"):
+            self.hotkey_status_title.setText(f"Hotkey: {key_name} / {state}")
+        if hasattr(self, "hotkey_state_badge"):
+            color = t.ACCENT_PRIMARY if self.hotkey_registered else t.DESTRUCTIVE
+            bg = t.ACCENT_MUTED_BG if self.hotkey_registered else t.DESTRUCTIVE_MUTED_BG
+            self.hotkey_state_badge.setText(state)
+            self.hotkey_state_badge.setStyleSheet(
+                f"color: {color}; font-size: {t.FONT_SM}px; font-weight: 700; "
+                f"background-color: {bg}; border: 1px solid {t.BORDER_DEFAULT}; "
+                f"border-radius: 7px; padding: 5px 9px;"
+            )
+
+    def _update_status_band(self, info=None):
+        if not hasattr(self, "stat_resolution"):
+            return
+        dev = self.get_dev_name()
+        info = info or resolution.get_current_resolution(dev)
+        native = resolution.get_registry_resolution(dev)
+        if info:
+            self.stat_resolution.set_value(f"{info['width']} x {info['height']}")
+            self.stat_refresh.set_value(f"{info.get('hz', '--')} Hz", accent=True)
+        else:
+            self.stat_resolution.set_value("No display", warning=True)
+            self.stat_refresh.set_value("--")
+
+        is_native = bool(
+            info and native and
+            info["width"] == native["width"] and
+            info["height"] == native["height"] and
+            info.get("hz") == native.get("hz")
+        )
+        self.stat_mode.set_value("Native" if is_native else "Stretched", accent=not is_native)
+
+        if not getattr(self, "hw_toggles", None):
+            self.stat_monitor.set_value("Not found")
+            return
+        any_disabled = any(not toggle.isChecked() for _, toggle in self.hw_toggles)
+        self.stat_monitor.set_value("Some off" if any_disabled else "On", accent=not any_disabled, warning=any_disabled)
+
+    def _update_hw_box_style(self):
+        if not hasattr(self, 'hw_box') or not self.hw_toggles:
+            self._update_status_band()
+            return
+        any_disabled = any(not toggle.isChecked() for _, toggle in self.hw_toggles)
+        self.hw_box.setStyleSheet(styles.section_card_qss(warning=any_disabled))
+        self._update_status_band()
+
+    def refresh_display(self):
+        info = resolution.get_current_resolution(self.get_dev_name())
+        self._update_status_band(info)
+        self.populate_pc_resolutions()
+        QTimer.singleShot(100, self.adjust_window_size)
+
+    def populate_pc_resolutions(self):
+        if not hasattr(self, 'pc_res_combo'):
+            return
+        self.pc_res_combo.blockSignals(True)
+        self.pc_res_combo.clear()
+        dev = self.get_dev_name()
+        if not dev:
+            self.pc_res_combo.blockSignals(False)
+            return
+        modes = resolution.get_all_resolutions(dev)
+        unique_res = []
+        for w, h, _hz in modes:
+            if (w, h) not in unique_res:
+                unique_res.append((w, h))
+        for w, h in unique_res:
+            self.pc_res_combo.addItem(f"{w} x {h}", (w, h))
+        self.pc_res_combo.blockSignals(False)
+        self.on_pc_resolution_changed()
+
+    def load_presets(self):
+        dev_name = self.get_dev_name()
+        modes = resolution.get_all_resolutions(dev_name) if dev_name else []
+        unique_modes = []
+        seen = set()
+        for w, h, _hz in modes:
+            if (w, h) in seen:
+                continue
+            seen.add((w, h))
+            unique_modes.append((w, h, self._aspect_bucket(w, h), "", False, None))
+
+        if unique_modes:
+            self._preset_cache[dev_name] = unique_modes
+        elif dev_name in self._preset_cache:
+            unique_modes = self._preset_cache[dev_name]
+            if dev_name not in self._preset_retry_pending:
+                self._preset_retry_pending.add(dev_name)
+                QTimer.singleShot(750, lambda: self._retry_preset_load(dev_name))
+        elif dev_name and dev_name not in self._preset_retry_pending:
+            self._preset_retry_pending.add(dev_name)
+            QTimer.singleShot(750, lambda: self._retry_preset_load(dev_name))
+
+        hidden_presets = self.settings.value("hidden_presets", [])
+        if isinstance(hidden_presets, str):
+            hidden_presets = []
+        customs = self.settings.value("custom_resolutions", [])
+        if not isinstance(customs, list):
+            customs = []
+
+        final_presets = []
+        for w, h, ratio, label, is_custom, hz in unique_modes:
+            if f"{w}x{h}" not in hidden_presets:
+                final_presets.append((w, h, ratio, label, is_custom, hz))
+        for c in customs:
+            if isinstance(c, dict) and all(key in c for key in ("w", "h", "name")):
+                final_presets.append((c['w'], c['h'], "Custom", c['name'], True, c.get('hz')))
+
+        self._final_presets = final_presets
+        self.layout_presets_grid()
+
+        if hasattr(self, 'hotkey_target_combo'):
+            self.hotkey_target_combo.blockSignals(True)
+            self.hotkey_target_combo.clear()
+            self.hotkey_target_combo.addItem("Latest Applied", None)
+            saved_target = self.settings.value("hotkey_target_res", None)
+            if not isinstance(saved_target, dict):
+                saved_target = None
+            idx_to_select = 0
+            for idx, (w, h, _ratio, _label, _is_custom, hz) in enumerate(final_presets):
+                hz_text = f" @ {hz}Hz" if hz else ""
+                self.hotkey_target_combo.addItem(f"{w} x {h}{hz_text}", {"w": w, "h": h, "hz": hz})
+                if saved_target and saved_target.get("w") == w and saved_target.get("h") == h and saved_target.get("hz") == hz:
+                    idx_to_select = idx + 1
+            self.hotkey_target_combo.setCurrentIndex(idx_to_select)
+            self.hotkey_target_combo.blockSignals(False)
+
+        if dev_name in self._preset_retry_pending and unique_modes:
+            self._preset_retry_pending.discard(dev_name)
+        if hasattr(self, 'update_tray_menu'):
+            tray_data = [(w, h, ratio, label, is_custom) for w, h, ratio, label, is_custom, _hz in final_presets if not is_custom]
+            self.update_tray_menu(tray_data)
+
+    def layout_presets_grid(self):
+        if not hasattr(self, "presets_grid"):
+            return
+        self._clear_layout(self.presets_grid)
+        presets = getattr(self, "_final_presets", [])
+        info = resolution.get_current_resolution(self.get_dev_name())
+        curr_w = info['width'] if info else 0
+        curr_h = info['height'] if info else 0
+        curr_hz = info.get('hz') if info else None
+        query = self.mode_search.text().strip().lower() if hasattr(self, "mode_search") else ""
+
+        visible_count = 0
+        current_group = None
+        for w, h, ratio, label, is_custom, hz in presets:
+            haystack = f"{w}x{h} {w} {h} {ratio} {label} {hz or ''}".lower()
+            if query and query not in haystack:
+                continue
+            if ratio != current_group:
+                current_group = ratio
+                group_label = SectionLabel(ratio.upper())
+                self.presets_grid.addWidget(group_label)
+            is_active = (w == curr_w and h == curr_h and (hz is None or hz == curr_hz))
+            row = ModeRow(w, h, ratio, label, is_custom, hz, is_active=is_active)
+            row.apply_requested.connect(self.change_res)
+            row.delete_requested.connect(self.delete_custom_resolution)
+            self.presets_grid.addWidget(row)
+            visible_count += 1
+
+        if visible_count == 0:
+            empty = QLabel("No matching modes. Clear search or add a custom resolution.")
+            empty.setWordWrap(True)
+            empty.setStyleSheet(styles.muted_label_qss())
+            self.presets_grid.addWidget(empty)
+
+        self.presets_grid.addStretch()
+        if hasattr(self, "mode_count_label"):
+            total = len(presets)
+            self.mode_count_label.setText(f"{visible_count} / {total} modes" if query else f"{total} modes")
