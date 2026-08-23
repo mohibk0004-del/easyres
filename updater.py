@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 RELEASE_API_URL = "https://api.github.com/repos/mohibk0004-del/easyres/releases/latest"
 USER_AGENT = "EasyRes-Updater"
 ALLOWED_DOWNLOAD_HOSTS = ("github.com", "githubusercontent.com")
-CURRENT_VERSION = "2.1.5"
+CURRENT_VERSION = "2.1.6"
 
 
 class UpdateError(RuntimeError):

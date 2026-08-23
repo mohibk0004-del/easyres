@@ -1587,7 +1587,7 @@ class MainWindow(QMainWindow):
             self.stat_monitor.set_value("Not found")
             return
         any_disabled = any(not toggle.isChecked() for _, toggle in self.hw_toggles)
-        self.stat_monitor.set_value("Some off" if any_disabled else "On", accent=not any_disabled, warning=any_disabled)
+        self.stat_monitor.set_value("Off" if any_disabled else "On", accent=not any_disabled, warning=any_disabled)
 
     def _update_hw_box_style(self):
         if not hasattr(self, 'hw_box') or not self.hw_toggles:
