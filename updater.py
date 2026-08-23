@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 RELEASE_API_URL = "https://api.github.com/repos/mohibk0004-del/easyres/releases/latest"
 USER_AGENT = "EasyRes-Updater"
 ALLOWED_DOWNLOAD_HOSTS = ("github.com", "githubusercontent.com")
-CURRENT_VERSION = "2.1.6"
+CURRENT_VERSION = "2.1.7"
 
 
 class UpdateError(RuntimeError):
@@ -165,6 +165,9 @@ def launch_replacement(downloaded_update: DownloadedUpdate, target_executable: s
     powershell = shutil.which("powershell.exe")
     if not powershell:
         raise UpdateError("Windows PowerShell is required to finish the update.")
+    command_shell = shutil.which("cmd.exe") or os.environ.get("ComSpec")
+    if not command_shell:
+        raise UpdateError("Windows Command Prompt is required to launch the update installer.")
 
     script_path = downloaded.parent / "install-update.ps1"
     script = r'''param(
@@ -177,7 +180,15 @@ $ErrorActionPreference = "Stop"
 $backup = "$Target.old"
 $log = "$Target.update-error.log"
 
-Wait-Process -Id $EasyResProcessId -ErrorAction SilentlyContinue
+try {
+    Wait-Process -Id $EasyResProcessId -Timeout 15 -ErrorAction Stop
+} catch {
+    $runningProcess = Get-Process -Id $EasyResProcessId -ErrorAction SilentlyContinue
+    if ($runningProcess) {
+        Stop-Process -Id $EasyResProcessId -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
+}
 
 for ($attempt = 0; $attempt -lt 80; $attempt++) {
     try {
@@ -215,6 +226,12 @@ exit 1
     try:
         subprocess.Popen(
             [
+                command_shell,
+                "/d",
+                "/c",
+                "start",
+                "",
+                "/min",
                 powershell,
                 "-NoProfile",
                 "-NonInteractive",

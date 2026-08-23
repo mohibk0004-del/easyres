@@ -269,6 +269,9 @@ class MainWindow(QMainWindow):
             self.on_update_failed(str(exc))
             return
 
+        force_exit = threading.Timer(3.0, lambda: os._exit(0))
+        force_exit.daemon = True
+        force_exit.start()
         self._quit_app()
 
     def on_update_failed(self, message):
@@ -770,13 +773,6 @@ class MainWindow(QMainWindow):
         browser_header.addWidget(self.mode_count_label)
         browser_layout.addLayout(browser_header)
 
-        self.mode_search = QLineEdit()
-        self.mode_search.setPlaceholderText("Search modes")
-        self.mode_search.setClearButtonEnabled(True)
-        self.mode_search.setStyleSheet(styles.input_qss())
-        self.mode_search.textChanged.connect(lambda _text: self.layout_presets_grid())
-        browser_layout.addWidget(self.mode_search)
-
         self.mode_scroll = QScrollArea()
         self.mode_scroll.setWidgetResizable(True)
         self.mode_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -784,7 +780,7 @@ class MainWindow(QMainWindow):
         self.mode_scroll.setStyleSheet(styles.scrollbar_qss())
         self.presets_grid_widget = QWidget()
         self.presets_grid_widget.setStyleSheet("background: transparent;")
-        self.presets_grid = QVBoxLayout(self.presets_grid_widget)
+        self.presets_grid = QGridLayout(self.presets_grid_widget)
         self.presets_grid.setContentsMargins(0, 0, 0, 0)
         self.presets_grid.setSpacing(t.SPACE_SM)
         self.mode_scroll.setWidget(self.presets_grid_widget)
@@ -1693,32 +1689,42 @@ class MainWindow(QMainWindow):
         curr_w = info['width'] if info else 0
         curr_h = info['height'] if info else 0
         curr_hz = info.get('hz') if info else None
-        query = self.mode_search.text().strip().lower() if hasattr(self, "mode_search") else ""
 
         visible_count = 0
-        current_group = None
-        for w, h, ratio, label, is_custom, hz in presets:
-            haystack = f"{w}x{h} {w} {h} {ratio} {label} {hz or ''}".lower()
-            if query and query not in haystack:
-                continue
-            if ratio != current_group:
-                current_group = ratio
-                group_label = SectionLabel(ratio.upper())
-                self.presets_grid.addWidget(group_label)
-            is_active = (w == curr_w and h == curr_h and (hz is None or hz == curr_hz))
-            row = ModeRow(w, h, ratio, label, is_custom, hz, is_active=is_active)
-            row.apply_requested.connect(self.change_res)
-            row.delete_requested.connect(self.delete_custom_resolution)
-            self.presets_grid.addWidget(row)
-            visible_count += 1
+        row_index = 0
+        columns = 3
+        grouped_presets = {}
+        for preset in presets:
+            _w, _h, ratio, _label, _is_custom, _hz = preset
+            grouped_presets.setdefault(ratio, []).append(preset)
+
+        for ratio, group in grouped_presets.items():
+            group_label = SectionLabel(ratio.upper())
+            self.presets_grid.addWidget(group_label, row_index, 0, 1, columns)
+            row_index += 1
+            col_index = 0
+            for w, h, ratio, label, is_custom, hz in group:
+                is_active = (w == curr_w and h == curr_h and (hz is None or hz == curr_hz))
+                tile = ModeRow(w, h, ratio, label, is_custom, hz, is_active=is_active)
+                tile.apply_requested.connect(self.change_res)
+                tile.delete_requested.connect(self.delete_custom_resolution)
+                self.presets_grid.addWidget(tile, row_index, col_index)
+                visible_count += 1
+                col_index += 1
+                if col_index >= columns:
+                    col_index = 0
+                    row_index += 1
+            if col_index:
+                row_index += 1
+
+        self.presets_grid.setRowStretch(row_index, 1)
 
         if visible_count == 0:
-            empty = QLabel("No matching modes. Clear search or add a custom resolution.")
+            empty = QLabel("No modes available. Add a custom resolution or retry after the display refreshes.")
             empty.setWordWrap(True)
             empty.setStyleSheet(styles.muted_label_qss())
-            self.presets_grid.addWidget(empty)
+            self.presets_grid.addWidget(empty, row_index, 0, 1, columns)
 
-        self.presets_grid.addStretch()
         if hasattr(self, "mode_count_label"):
             total = len(presets)
-            self.mode_count_label.setText(f"{visible_count} / {total} modes" if query else f"{total} modes")
+            self.mode_count_label.setText(f"{total} modes")

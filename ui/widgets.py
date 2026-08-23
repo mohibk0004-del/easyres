@@ -206,7 +206,7 @@ class StatPill(QWidget):
         self.value.setStyleSheet(styles.stat_value_qss(accent=accent, warning=warning))
 
 
-class ModeRow(QWidget):
+class ModeRow(QPushButton):
     apply_requested = pyqtSignal(int, int, object)
     delete_requested = pyqtSignal(str, int, int, bool)
 
@@ -219,13 +219,20 @@ class ModeRow(QWidget):
         self.is_custom = is_custom
         self.hz = hz
         self._is_active = is_active
-        self.setMinimumHeight(58)
+        self.setMinimumSize(154, 88)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(
+            f"{'Active' if is_active else 'Apply'} resolution {width} x {height}"
+        )
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
         self.setStyleSheet(styles.mode_row_qss(is_active=is_active, is_custom=is_custom))
+        self.clicked.connect(self._apply)
 
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(t.SPACE_MD, t.SPACE_MD, t.SPACE_MD, t.SPACE_MD)
-        layout.setSpacing(t.SPACE_MD)
+        layout.setSpacing(t.SPACE_XS)
 
         title = QLabel(f"{width} x {height}")
         title.setMinimumWidth(0)
@@ -242,25 +249,22 @@ class ModeRow(QWidget):
         meta.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         meta.setStyleSheet(styles.muted_label_qss(t.FONT_SM))
 
-        hz_text = QLabel(f"{hz} Hz" if hz else "Best Hz")
-        hz_text.setFixedWidth(64)
-        hz_text.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        hz_text.setStyleSheet(styles.body_label_qss())
+        state = "ACTIVE" if is_active else (f"{hz} Hz" if hz else "Best Hz")
+        hz_text = QLabel(state)
+        hz_text.setStyleSheet(
+            styles.body_label_qss() if not is_active else
+            f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_MD}px; font-weight: 700; border: none; background: transparent;"
+        )
 
-        apply_btn = ActionButton("Active" if is_active else "Apply", primary=is_active)
-        apply_btn.setFixedWidth(68)
-        apply_btn.setEnabled(not is_active)
-        apply_btn.clicked.connect(lambda: self.apply_requested.emit(width, height, hz))
-
-        text_stack = QVBoxLayout()
-        text_stack.setContentsMargins(0, 0, 0, 0)
-        text_stack.setSpacing(t.SPACE_XS)
-        text_stack.addWidget(title)
-        text_stack.addWidget(meta)
-
-        layout.addLayout(text_stack, 1)
+        layout.addWidget(title)
+        layout.addWidget(meta)
+        layout.addStretch()
         layout.addWidget(hz_text)
-        layout.addWidget(apply_btn)
+
+    def _apply(self):
+        if self._is_active:
+            return
+        self.apply_requested.emit(self.res_width, self.res_height, self.hz)
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)

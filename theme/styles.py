@@ -256,14 +256,22 @@ def mode_row_qss(is_active: bool = False, is_custom: bool = False) -> str:
     bg = t.BG_CARD_CUSTOM if is_custom else t.BG_CARD
     border = t.ACCENT_MUTED_BORDER if is_active else t.BORDER_DEFAULT
     return f"""
-        QWidget {{
+        QPushButton {{
             background-color: {bg};
             border: 1px solid {border};
             border-radius: {t.RADIUS_MD}px;
+            text-align: left;
         }}
-        QWidget:hover {{
+        QPushButton:hover {{
             background-color: {t.BG_CARD_HOVER};
             border: 1px solid {t.BORDER_HOVER};
+        }}
+        QPushButton:pressed {{
+            background-color: {t.ACCENT_MUTED_BG};
+            border: 1px solid {t.ACCENT_PRIMARY};
+        }}
+        QPushButton:focus {{
+            border: 2px solid {t.ACCENT_PRIMARY};
         }}
         QLabel {{
             border: none;

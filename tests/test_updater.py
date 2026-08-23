@@ -119,15 +119,26 @@ class UpdaterTests(unittest.TestCase):
             downloaded.write_bytes(b"MZ update")
             target.write_bytes(b"MZ current")
 
-            with patch("updater.shutil.which", return_value=r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"), patch("updater.subprocess.Popen") as popen:
+            def fake_which(name):
+                if name == "powershell.exe":
+                    return r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+                if name == "cmd.exe":
+                    return r"C:\Windows\System32\cmd.exe"
+                return None
+
+            with patch("updater.shutil.which", side_effect=fake_which), patch("updater.subprocess.Popen") as popen:
                 update = updater.DownloadedUpdate(str(downloaded), hashlib.sha256(downloaded.read_bytes()).hexdigest())
                 updater.launch_replacement(update, str(target))
 
             command = popen.call_args.args[0]
-            self.assertEqual(command[0], r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+            self.assertEqual(command[0], r"C:\Windows\System32\cmd.exe")
+            self.assertIn("start", command)
+            self.assertIn(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", command)
             self.assertIn("-File", command)
             script_path = downloaded.parent / "install-update.ps1"
             script = script_path.read_text(encoding="utf-8")
+            self.assertIn("Wait-Process -Id $EasyResProcessId -Timeout 15", script)
+            self.assertIn("Stop-Process -Id $EasyResProcessId -Force", script)
             self.assertIn("Move-Item -LiteralPath $Target -Destination $backup", script)
             self.assertIn("Move-Item -LiteralPath $backup -Destination $Target", script)
             self.assertIn("Get-FileHash -LiteralPath $Target -Algorithm SHA256", script)
