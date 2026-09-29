@@ -36,6 +36,13 @@ from ui.pages.switch_page import SwitchPage
 from ui.widgets import ActionButton, IconButton, StatusItem, make_label
 
 WM_HOTKEY = 0x0312
+NO_NATIVE_EVENT = bool(os.environ.get("EASYRES_NO_NATIVE_EVENT"))
+
+
+def trace(message):
+    """Startup breadcrumbs for diagnosing crashes (EASYRES_TRACE=1)."""
+    if os.environ.get("EASYRES_TRACE"):
+        print(f"[trace] {message}", flush=True)
 PAGE_SWITCH, PAGE_CUSTOM, PAGE_MONITORS, PAGE_HOTKEYS, PAGE_SETTINGS = range(5)
 
 
@@ -195,6 +202,7 @@ class AppWindow(QMainWindow):
         c.refresh_monitors()
         c.check_updates()
         QTimer.singleShot(400, self._maybe_onboard)
+        trace("AppWindow.__init__: done")
 
     # ------------------------------------------------------------------
     # Construction
@@ -713,19 +721,25 @@ class AppWindow(QMainWindow):
     # Window chrome
     # ------------------------------------------------------------------
     def showEvent(self, event):
+        trace("showEvent: begin")
         super().showEvent(event)
         if self._shown_once:
             return
         self._shown_once = True
+        trace("showEvent: installing native chrome")
         self.native_chrome = native_chrome.install(self, t.BORDER_SUBTLE)
+        trace(f"showEvent: native chrome = {self.native_chrome}")
         self.grip.setVisible(not self.native_chrome)
         self.root.setFocus(Qt.FocusReason.OtherFocusReason)
         self._sync_status()
-        if duration(t.MOTION_FADE):
+        if duration(t.MOTION_FADE) and not os.environ.get("EASYRES_NO_FADE"):
             self.setWindowOpacity(0.0)
             self._fade = motion.tween(self, 0.0, 1.0, t.MOTION_FADE, self.setWindowOpacity)
+        trace("showEvent: end")
 
     def nativeEvent(self, eventType, message):
+        if NO_NATIVE_EVENT:
+            return super().nativeEvent(eventType, message)
         event_type = eventType.encode() if isinstance(eventType, str) else bytes(eventType)
         if event_type in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
             handled, result = native_chrome.handle(self, message)

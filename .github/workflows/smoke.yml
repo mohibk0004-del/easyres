@@ -41,14 +41,26 @@ jobs:
       - name: Launch EasyRes.exe
         shell: pwsh
         run: |
-          $env:EASYRES_SMOKE_SECONDS = "10"
           $log = Join-Path $env:LOCALAPPDATA "EasyRes\crash.log"
-          $p = Start-Process -FilePath dist\EasyRes.exe -PassThru
-          $finished = $p.WaitForExit(90000)
-          if (-not $finished) { Stop-Process -Id $p.Id -Force; "RESULT: timed out" }
-          else { "RESULT: exit code $($p.ExitCode)" }
-          "----- crash.log -----"
-          if (Test-Path $log) { Get-Content $log } else { "(no crash.log at $log)" }
-          if (-not $finished -or $p.ExitCode -ne 0 -or -not (Select-String -Path $log -Pattern "SMOKE OK" -Quiet)) {
-            exit 1
+          $variants = [ordered]@{
+            "default"          = @{}
+            "no-fade"          = @{ EASYRES_NO_FADE = "1" }
+            "qt-frame"         = @{ EASYRES_QT_FRAME = "1" }
+            "no-native-event"  = @{ EASYRES_QT_FRAME = "1"; EASYRES_NO_NATIVE_EVENT = "1" }
           }
+          $defaultOk = $false
+          foreach ($name in $variants.Keys) {
+            foreach ($k in @("EASYRES_NO_FADE", "EASYRES_QT_FRAME", "EASYRES_NO_NATIVE_EVENT")) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
+            foreach ($pair in $variants[$name].GetEnumerator()) { Set-Item "Env:$($pair.Key)" $pair.Value }
+            $env:EASYRES_SMOKE_SECONDS = "8"
+            $env:EASYRES_TRACE = "1"
+            $p = Start-Process -FilePath dist\EasyRes.exe -PassThru
+            $finished = $p.WaitForExit(90000)
+            if (-not $finished) { Stop-Process -Id $p.Id -Force; $result = "timed out" } else { $result = "exit code $($p.ExitCode)" }
+            $ok = $finished -and $p.ExitCode -eq 0 -and (Test-Path $log) -and (Select-String -Path $log -Pattern "SMOKE OK" -Quiet)
+            "===== $name : $result : ok=$ok ====="
+            if (Test-Path $log) { Get-Content $log } else { "(no crash.log)" }
+            if ($name -eq "default") { $defaultOk = $ok }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $defaultOk) { exit 1 }
