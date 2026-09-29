@@ -7,7 +7,7 @@ def restart_graphics_driver():
     """
     Restarts the graphics driver by disabling and re-enabling it via SetupAPI.
     Requires Administrator privileges.
-    Returns the number of devices successfully restarted.
+    Returns True only if every adapter that was disabled is enabled again.
     """
     setupapi = ctypes.windll.setupapi
 
@@ -58,42 +58,54 @@ def restart_graphics_driver():
     guid_bytes = display_guid.bytes_le
 
     devices = setupapi.SetupDiGetClassDevsA(guid_bytes, None, None, DIGCF_PRESENT)
-    if devices == -1 or devices == 0:
-        return 0
+    if not devices or devices == ctypes.c_void_p(-1).value:
+        return False
 
-    device = SP_DEVINFO_DATA()
-    device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
+    def change_state(index, state):
+        device = SP_DEVINFO_DATA()
+        device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
+        if not setupapi.SetupDiEnumDeviceInfo(devices, index, ctypes.byref(device)):
+            return None
+        params = SP_PROPCHANGE_PARAMS()
+        params.ClassInstallHeader.cbSize = ctypes.sizeof(SP_CLASSINSTALL_HEADER)
+        params.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE
+        params.StateChange = state
+        params.Scope = DICS_FLAG_GLOBAL
+        params.HwProfile = 0
+        if not setupapi.SetupDiSetClassInstallParamsA(devices, ctypes.byref(device), ctypes.byref(params), ctypes.sizeof(SP_PROPCHANGE_PARAMS)):
+            return False
+        return bool(setupapi.SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, devices, ctypes.byref(device)))
 
-    def set_device_state(state):
+    try:
+        # Only touch adapters we successfully disabled, so we never enable
+        # a device the user had disabled on purpose.
+        disabled = []
         index = 0
-        success_count = 0
-        while setupapi.SetupDiEnumDeviceInfo(devices, index, ctypes.byref(device)):
-            params = SP_PROPCHANGE_PARAMS()
-            params.ClassInstallHeader.cbSize = ctypes.sizeof(SP_CLASSINSTALL_HEADER)
-            params.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE
-            params.StateChange = state
-            params.Scope = DICS_FLAG_GLOBAL
-            params.HwProfile = 0
-
-            if setupapi.SetupDiSetClassInstallParamsA(devices, ctypes.byref(device), ctypes.byref(params), ctypes.sizeof(SP_PROPCHANGE_PARAMS)):
-                if setupapi.SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, devices, ctypes.byref(device)):
-                    success_count += 1
+        while True:
+            result = change_state(index, DICS_DISABLE)
+            if result is None:
+                break
+            if result:
+                disabled.append(index)
             index += 1
-        return success_count
 
-    # Disable drivers
-    disabled_count = set_device_state(DICS_DISABLE)
-    
-    # Wait for the system to process the disable
-    time.sleep(1.0)
-    
-    # Enable drivers
-    enabled_count = set_device_state(DICS_ENABLE)
+        if not disabled:
+            return False
 
-    setupapi.SetupDiDestroyDeviceInfoList(devices)
-    
-    # Return True if we managed to disable and re-enable at least one display driver
-    return enabled_count > 0
+        # Wait for the system to process the disable
+        time.sleep(1.0)
+
+        # Re-enable every adapter we disabled; retry so a transient failure
+        # never leaves the machine on the basic display driver.
+        pending = list(disabled)
+        for _attempt in range(5):
+            pending = [idx for idx in pending if not change_state(idx, DICS_ENABLE)]
+            if not pending:
+                break
+            time.sleep(0.5)
+        return not pending
+    finally:
+        setupapi.SetupDiDestroyDeviceInfoList(devices)
 
 if __name__ == "__main__":
     if ctypes.windll.shell32.IsUserAnAdmin():

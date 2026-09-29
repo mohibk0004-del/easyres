@@ -1,4 +1,7 @@
-"""Design tokens for EasyRes amber monochrome theme."""
+"""Design tokens for the EasyRes black, graphite and blurple theme.
+
+Palette values are fixed; see DESIGN.md. Change usage, not colors.
+"""
 
 # Backgrounds
 BG_BASE = "#000000"
@@ -46,19 +49,20 @@ RADIUS_LG = 12
 RADIUS_XL = 16
 
 # Typography sizes
-FONT_XS = 10
-FONT_SM = 11
+FONT_XS = 11
+FONT_SM = 12
 FONT_MD = 13
 FONT_LG = 15
 FONT_XL = 18
 FONT_2XL = 32
 
 # Motion (ms)
-MOTION_FAST = 200
-MOTION_STANDARD = 300
-MOTION_TOGGLE = 400
-MOTION_FADE = 500
-MOTION_STAGGER = 60
+MOTION_FAST = 150
+MOTION_STANDARD = 200
+MOTION_TOGGLE = 180
+MOTION_FADE = 180
+TOAST_MS = 4000
+REVERT_SECONDS = 15
 
 # Shadow
 SHADOW_BLUR = 30
@@ -68,5 +72,7 @@ SHADOW_COLOR = "rgba(0, 0, 0, 150)"
 # Window
 TITLE_BAR_HEIGHT = 42
 ICON_BTN_SIZE = 28
-PRESET_CARD_WIDTH = 124
-PRESET_CARD_HEIGHT = 76
+MODE_TILE_MIN_WIDTH = 150
+MODE_TILE_HEIGHT = 84
+WINDOW_MIN_WIDTH = 760
+WINDOW_MIN_HEIGHT = 520

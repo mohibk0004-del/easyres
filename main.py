@@ -1,65 +1,91 @@
 import sys
 import os
 import ctypes
+import subprocess
+
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QIcon, QFontDatabase, QFont
-from ui.main_window import MainWindow
+
+ERROR_ALREADY_EXISTS = 183
+SINGLE_INSTANCE_MUTEX = "Local\\EasyRes_SingleInstance"
+
 
 def is_admin():
     try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
         return False
 
-def main():
-    with open("crash.log", "w") as f:
-        pass
-    sys.stderr = open("crash.log", "a")
-    sys.stdout = sys.stderr
 
-    if not is_admin():
+def log_dir():
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    path = os.path.join(base, "EasyRes")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def open_crash_log():
+    """Redirect stdout/stderr to a per-user log (never the working dir,
+    which is System32 for an elevated process)."""
+    try:
+        log = open(os.path.join(log_dir(), "crash.log"), "w", encoding="utf-8", buffering=1)
+    except OSError:
+        return None
+    sys.stderr = log
+    sys.stdout = log
+    return log
+
+
+def relaunch_as_admin():
+    if getattr(sys, "frozen", False):
         exe = sys.executable
-        if exe.endswith("python.exe"):
-            exe = exe.replace("python.exe", "pythonw.exe")
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, " ".join(sys.argv), None, 1)
-        sys.exit()
+        params = subprocess.list2cmdline(sys.argv[1:])
+    else:
+        exe = sys.executable
+        if exe.lower().endswith("python.exe"):
+            exe = exe[:-len("python.exe")] + "pythonw.exe"
+        params = subprocess.list2cmdline([os.path.abspath(sys.argv[0])] + sys.argv[1:])
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
 
+
+def main():
+    if not is_admin():
+        relaunch_as_admin()
+        sys.exit(0)
+
+    log = open_crash_log()
     try:
         from PyQt6.QtWidgets import QMessageBox
+        from theme.fonts import load_app_font
+        from theme.assets import asset_base_path
+        from theme import styles
+        from PyQt6.QtGui import QIcon
+
         app = QApplication(sys.argv)
-        
-        try:
-            base_path = sys._MEIPASS
-        except Exception:
-            base_path = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(base_path, "icon.png")
-        app.setWindowIcon(QIcon(icon_path))
-        
-        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "EasyRes_SingleInstance")
-        if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
-            QMessageBox.critical(None, "EasyRes", "An instance of EasyRes is already running. Check your system tray.")
+        app.setStyle(styles.AppStyle())
+        app.setStyleSheet(styles.app_qss())
+        app.setWindowIcon(QIcon(os.path.join(asset_base_path(), "icon.png")))
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        mutex = kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX)
+        if not mutex or ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+            QMessageBox.critical(None, "EasyRes", "EasyRes is already running. Check your system tray.")
             sys.exit(0)
-            
-        # Load fonts
-        for font_file in ["Inter-Regular.ttf", "Inter-Medium.ttf", "Inter-SemiBold.ttf", "Inter-Bold.ttf"]:
-            font_path = os.path.join(base_path, "assets", "fonts", font_file)
-            if os.path.exists(font_path):
-                QFontDatabase.addApplicationFont(font_path)
-                
-        # Apply global font
-        app.setFont(QFont("Inter", 11))
-        
-        # Enable High DPI scaling
-        if hasattr(Qt := getattr(app, "setAttribute", None), "__call__"):
-            pass
-            
+
+        app.setFont(load_app_font())
+
+        from ui.main_window import MainWindow
         window = MainWindow()
         window.show()
         sys.exit(app.exec())
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        if log:
+            log.flush()
+
 
 if __name__ == "__main__":
     main()

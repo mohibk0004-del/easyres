@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -14,6 +15,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
+
+from sysutil import powershell_path
 
 
 RELEASE_API_URL = "https://api.github.com/repos/mohibk0004-del/easyres/releases/latest"
@@ -68,12 +71,7 @@ def fetch_latest_release(timeout: int = 8) -> dict:
 
 def select_windows_asset(release: dict) -> dict:
     assets = [asset for asset in release.get("assets", []) if asset.get("state") == "uploaded"]
-    exact = [asset for asset in assets if asset.get("name", "").lower() == "easyres.exe"]
-    candidates = exact or [
-        asset for asset in assets
-        if asset.get("name", "").lower().endswith(".exe")
-        and "easyres" in asset.get("name", "").lower()
-    ]
+    candidates = [asset for asset in assets if asset.get("name", "").lower() == "easyres.exe"]
     if not candidates:
         raise UpdateError("This release does not include an EasyRes Windows executable.")
     return candidates[0]
@@ -98,6 +96,8 @@ def download_asset(asset: dict, progress_callback=None, opener=urllib.request.ur
     expected_size = int(asset.get("size") or 0)
     digest = asset.get("digest") or ""
     expected_sha256 = digest.split(":", 1)[1].lower() if digest.lower().startswith("sha256:") else None
+    if not expected_sha256 or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise UpdateError("This release has no published SHA-256 digest, so it cannot be verified.")
 
     update_dir = Path(tempfile.mkdtemp(prefix="EasyResUpdate-"))
     partial_path = update_dir / f"{name}.part"
@@ -162,21 +162,63 @@ def launch_replacement(downloaded_update: DownloadedUpdate, target_executable: s
     if target.suffix.lower() != ".exe":
         raise UpdateError("Current EasyRes executable path is invalid.")
 
-    powershell = shutil.which("powershell.exe")
-    if not powershell:
+    powershell = powershell_path()
+    if not os.path.isfile(powershell):
         raise UpdateError("Windows PowerShell is required to finish the update.")
-    command_shell = shutil.which("cmd.exe") or os.environ.get("ComSpec")
-    if not command_shell:
-        raise UpdateError("Windows Command Prompt is required to launch the update installer.")
+    # The installer runs elevated. It is passed inline via -EncodedCommand so
+    # there is no script file on disk that a non-admin process could swap
+    # between writing and execution. PowerShell is launched directly (not via
+    # cmd.exe) because cmd.exe truncates command lines at 8191 characters.
+    script = build_install_script(str(target), str(downloaded), downloaded_update.sha256, os.getpid())
 
-    script_path = downloaded.parent / "install-update.ps1"
-    script = r'''param(
-    [Parameter(Mandatory=$true)][string]$Target,
-    [Parameter(Mandatory=$true)][string]$Download,
-    [Parameter(Mandatory=$true)][string]$ExpectedSha256,
-    [Parameter(Mandatory=$true)][int]$EasyResProcessId
-)
-$ErrorActionPreference = "Stop"
+    creation_flags = (
+        getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    )
+    try:
+        subprocess.Popen(
+            [
+                powershell,
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                encode_powershell_command(script),
+            ],
+            close_fds=True,
+            creationflags=creation_flags,
+        )
+    except Exception as exc:
+        discard_download(downloaded_update)
+        raise UpdateError(f"Could not launch the update installer: {exc}") from exc
+
+
+def _ps_literal(value: str) -> str:
+    """Quote a value as a PowerShell single-quoted string literal."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def encode_powershell_command(script: str) -> str:
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+
+
+def build_install_script(target: str, download: str, expected_sha256: str, process_id: int) -> str:
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256 or ""):
+        raise UpdateError("Verified update metadata is invalid.")
+    header = (
+        f"$Target = {_ps_literal(target)}\n"
+        f"$Download = {_ps_literal(download)}\n"
+        f"$ExpectedSha256 = {_ps_literal(expected_sha256)}\n"
+        f"$EasyResProcessId = {int(process_id)}\n"
+    )
+    return header + INSTALL_SCRIPT_BODY
+
+
+INSTALL_SCRIPT_BODY = r'''$ErrorActionPreference = "Stop"
+$downloadDir = Split-Path -Parent $Download
 $backup = "$Target.old"
 $log = "$Target.update-error.log"
 
@@ -191,6 +233,7 @@ try {
 }
 
 for ($attempt = 0; $attempt -lt 80; $attempt++) {
+    if (-not (Test-Path -LiteralPath $Download)) { break }
     try {
         if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }
         Move-Item -LiteralPath $Target -Destination $backup -Force
@@ -202,7 +245,7 @@ for ($attempt = 0; $attempt -lt 80; $attempt++) {
         if ($newProcess.HasExited) { throw "Updated EasyRes exited during startup." }
         if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }
         if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
-        Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
         exit 0
     } catch {
         if (Test-Path -LiteralPath $backup) {
@@ -217,40 +260,6 @@ for ($attempt = 0; $attempt -lt 80; $attempt++) {
 if (Test-Path -LiteralPath $Target) {
     Start-Process -FilePath $Target -WorkingDirectory (Split-Path -Parent $Target)
 }
-Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
 exit 1
 '''
-    script_path.write_text(script, encoding="utf-8")
-
-    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-    try:
-        subprocess.Popen(
-            [
-                command_shell,
-                "/d",
-                "/c",
-                "start",
-                "",
-                "/min",
-                powershell,
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(script_path),
-                "-Target",
-                str(target),
-                "-Download",
-                str(downloaded),
-                "-ExpectedSha256",
-                downloaded_update.sha256,
-                "-EasyResProcessId",
-                str(os.getpid()),
-            ],
-            close_fds=True,
-            creationflags=creation_flags,
-        )
-    except Exception as exc:
-        discard_download(downloaded_update)
-        raise UpdateError(f"Could not launch the update installer: {exc}") from exc

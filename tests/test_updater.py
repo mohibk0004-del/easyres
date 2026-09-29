@@ -96,6 +96,7 @@ class UpdaterTests(unittest.TestCase):
             "name": "EasyRes.exe",
             "state": "uploaded",
             "size": len(payload),
+            "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
             "browser_download_url": "https://github.com/example/release/EasyRes.exe",
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -110,8 +111,47 @@ class UpdaterTests(unittest.TestCase):
             finally:
                 updater.tempfile.mkdtemp = original_mkdtemp
 
+    def test_download_requires_published_digest(self):
+        payload = b"MZ fake executable bytes"
+        asset = {
+            "name": "EasyRes.exe",
+            "state": "uploaded",
+            "size": len(payload),
+            "browser_download_url": "https://github.com/example/release/EasyRes.exe",
+        }
+        with self.assertRaisesRegex(updater.UpdateError, "SHA-256"):
+            updater.download_asset(
+                asset,
+                opener=lambda request, timeout: FakeResponse(payload, asset["browser_download_url"]),
+            )
+
+    def test_asset_selection_rejects_lookalike_names(self):
+        release = {"assets": [{"name": "EasyRes-setup.exe", "state": "uploaded"}]}
+        with self.assertRaises(updater.UpdateError):
+            updater.select_windows_asset(release)
+
+    def test_install_script_quotes_paths_and_rolls_back(self):
+        sha = "a" * 64
+        script = updater.build_install_script(r"C:\Games\It's Mine\EasyRes.exe", r"C:\Temp\x\EasyRes.exe", sha, 1234)
+        self.assertIn(r"$Target = 'C:\Games\It''s Mine\EasyRes.exe'", script)
+        self.assertIn(f"$ExpectedSha256 = '{sha}'", script)
+        self.assertIn("$EasyResProcessId = 1234", script)
+        self.assertIn("Wait-Process -Id $EasyResProcessId -Timeout 15", script)
+        self.assertIn("Move-Item -LiteralPath $backup -Destination $Target", script)
+        self.assertIn("Get-FileHash -LiteralPath $Target -Algorithm SHA256", script)
+        self.assertNotIn("$PSCommandPath", script)
+
+    def test_install_script_rejects_bad_digest(self):
+        with self.assertRaises(updater.UpdateError):
+            updater.build_install_script("a.exe", "b.exe", "not-a-sha", 1)
+
+    def test_encoded_command_round_trips(self):
+        import base64
+        encoded = updater.encode_powershell_command("Write-Output 'hi'")
+        self.assertEqual(base64.b64decode(encoded).decode("utf-16-le"), "Write-Output 'hi'")
+
     @unittest.skipUnless(os.name == "nt", "Windows replacement helper")
-    def test_replacement_helper_uses_argument_list_and_rollback_script(self):
+    def test_replacement_helper_runs_inline_script_without_file(self):
         with tempfile.TemporaryDirectory() as directory:
             downloaded = Path(directory) / "EasyRes.exe"
             target = Path(directory) / "installed" / "EasyRes.exe"
@@ -119,30 +159,15 @@ class UpdaterTests(unittest.TestCase):
             downloaded.write_bytes(b"MZ update")
             target.write_bytes(b"MZ current")
 
-            def fake_which(name):
-                if name == "powershell.exe":
-                    return r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-                if name == "cmd.exe":
-                    return r"C:\Windows\System32\cmd.exe"
-                return None
-
-            with patch("updater.shutil.which", side_effect=fake_which), patch("updater.subprocess.Popen") as popen:
+            with patch("updater.subprocess.Popen") as popen:
                 update = updater.DownloadedUpdate(str(downloaded), hashlib.sha256(downloaded.read_bytes()).hexdigest())
                 updater.launch_replacement(update, str(target))
 
             command = popen.call_args.args[0]
-            self.assertEqual(command[0], r"C:\Windows\System32\cmd.exe")
-            self.assertIn("start", command)
-            self.assertIn(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", command)
-            self.assertIn("-File", command)
-            script_path = downloaded.parent / "install-update.ps1"
-            script = script_path.read_text(encoding="utf-8")
-            self.assertIn("Wait-Process -Id $EasyResProcessId -Timeout 15", script)
-            self.assertIn("Stop-Process -Id $EasyResProcessId -Force", script)
-            self.assertIn("Move-Item -LiteralPath $Target -Destination $backup", script)
-            self.assertIn("Move-Item -LiteralPath $backup -Destination $Target", script)
-            self.assertIn("Get-FileHash -LiteralPath $Target -Algorithm SHA256", script)
-            self.assertIn("-ExpectedSha256", command)
+            self.assertTrue(command[0].lower().endswith(r"system32\windowspowershell\v1.0\powershell.exe"))
+            self.assertIn("-EncodedCommand", command)
+            self.assertNotIn("-File", command)
+            self.assertFalse((downloaded.parent / "install-update.ps1").exists())
 
 
 if __name__ == "__main__":

@@ -1,11 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[('C:/Users/MOIZ/AppData/Local/Programs/Python/Python310/python310.dll', '.')],
-    datas=[('icon.png', '.')],
+    binaries=[],
+    datas=[('icon.png', '.')] + ([('assets', 'assets')] if os.path.isdir('assets') else []),
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

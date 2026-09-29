@@ -17,22 +17,23 @@
 
 EasyRes is a high-performance resolution manager designed specifically for competitive gamers and power users. Unlike traditional software that relies on injected driver settings (which can cause input lag or be blocked by strict anti-cheat software), EasyRes interacts directly with the lowest levels of the Windows Display API to force instantaneous, lag-free resolution swapping.
 
-It was engineered from the ground up to guarantee compatibility with kernel-level anti-cheats such as Vanguard, making it the safest and most efficient tool for achieving "True Stretch" in competitive titles.
+It only uses documented Windows display APIs and never touches game processes. Anti-cheat policies are set by each game publisher, so check your game's rules before use.
 
 ## Key Features
 
 * **True Stretched Resolutions:** Bypass heavy driver control panels (NVIDIA/AMD) and switch to popular competitive resolutions like 1440x1080 or 1280x960 instantly.
 * **Native API Interfacing:** Utilizes Windows `ChangeDisplaySettingsEx` and `DEVMODE` structures for pure, unadulterated hardware instructions.
-* **Vanguard & Anti-Cheat Safe:** Runs entirely in userspace using standard Windows binaries without injecting memory or violating Terms of Service.
+* **No Game Injection:** Runs entirely in userspace using standard Windows APIs and binaries; it never reads or writes game memory.
+* **Safe Switching:** Every resolution change made in the window offers a 15-second keep-or-revert countdown, and `Ctrl+Shift+F12` restores native resolution from anywhere.
 * **Hardware Monitor Toggling:** Includes a built-in toggle to programmatically disable/enable integrated monitors via `pnputil`, a mandatory step for triggering hardware-level True Stretch on modern gaming laptops.
 * **System Tray Quick-Switch:** Operates quietly in the background. Right-click the system tray icon to swap resolutions instantly without opening the interface.
-* **Premium User Interface:** Built with PyQt6 featuring a sleek monochrome and amber aesthetic, hardware-accelerated transparency, and Apple-inspired physics/spring animations.
+* **Focused Interface:** PyQt6 with a black, graphite and blurple theme, keyboard navigation, and motion that respects the Windows "Animation effects" setting.
 * **Single Instance Lock:** Uses a native Windows Mutex to ensure lightweight operation and prevent duplicate background processes.
 
 ## Requirements
 
 * Windows 10 or Windows 11 (64-bit)
-* Administrator Privileges (Required strictly for the `pnputil` hardware toggle feature)
+* Administrator Privileges (required for the `pnputil` monitor toggle, EDID overrides, and driver restarts)
 * Display drivers that natively expose custom timing parameters
 
 ## Build Instructions
@@ -50,13 +51,17 @@ If you wish to compile the application from source rather than running the raw P
    ```
 4. The standalone, portable executable will be generated in the `dist/` directory as `EasyRes.exe`.
 
+Optional: place `Inter-Regular.ttf`, `Inter-Medium.ttf`, `Inter-SemiBold.ttf` and `Inter-Bold.ttf` (SIL Open Font License) in `assets/fonts/` to bundle Inter. Without them EasyRes uses Segoe UI.
+
+Run the tests with `python -m unittest discover -s tests`.
+
 ### Publishing Updates
 
-Bump `CURRENT_VERSION` in `updater.py`, then attach the packaged binary to each stable GitHub release with the exact asset name `EasyRes.exe`. Packaged builds use that asset for in-app updates, validate its published size and GitHub SHA-256 digest when available, then replace and restart the application with rollback protection.
+Bump `CURRENT_VERSION` in `updater.py`, then attach the packaged binary to each stable GitHub release with the exact asset name `EasyRes.exe`. Packaged builds use that asset for in-app updates. The GitHub SHA-256 asset digest is required: EasyRes verifies it and the file size, then replaces and restarts itself with rollback protection. Releases without a digest are refused.
 
 ## Technical Architecture
 
-* **Frontend:** PyQt6 with completely custom painted widgets, frameless window resizing hooks (`WM_NCHITTEST`), and `QPropertyAnimation`.
+* **Frontend:** PyQt6 with a single property-driven stylesheet (`theme/styles.py`), custom painted widgets, native window move/resize (`startSystemMove`/`startSystemResize`), and background workers for every blocking system call.
 * **Backend Core:** `ctypes` bindings to `user32.dll` and `kernel32.dll`.
 * **Display Parsing:** Extracts valid EDID bounds via `EnumDisplaySettingsW` and synthesizes clean `DEVMODE` memory blocks to prevent driver-padding rejection.
 

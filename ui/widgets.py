@@ -1,216 +1,263 @@
 """Reusable UI widgets for EasyRes."""
 
+import math
+
 from PyQt6.QtWidgets import (
-    QPushButton, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMenu,
-    QGraphicsOpacityEffect, QSizePolicy,
+    QAbstractButton, QPushButton, QWidget, QVBoxLayout, QLabel, QMenu, QSizePolicy,
 )
 from PyQt6.QtCore import (
-    Qt, QPropertyAnimation, QEasingCurve, QRect, pyqtProperty, pyqtSignal,
+    Qt, QPropertyAnimation, QEasingCurve, QRectF, QPointF, QSize, pyqtProperty, pyqtSignal,
 )
-from PyQt6.QtGui import QPainter, QPainterPath, QBrush, QColor, QIcon, QPixmap, QPen, QFont
+from PyQt6.QtGui import QPainter, QPainterPath, QColor, QIcon, QPixmap, QPen
 
 from theme import tokens as t
 from theme import styles
-from theme.assets import icon_path
+from theme.motion import duration
+
+ICON_RENDER_SCALE = 3  # Painted icons stay sharp up to 300% display scaling.
 
 
-class PremiumToggle(QWidget):
-    toggled = pyqtSignal(bool)
+class PremiumToggle(QAbstractButton):
+    """Animated switch. A checkable button, so keyboard (Space) and
+    accessibility (checked state) come from Qt."""
 
-    def __init__(self, parent=None):
+    TRACK_W = 44
+    TRACK_H = 24
+    HANDLE = 18
+
+    def __init__(self, accessible_name: str = "Toggle", parent=None):
         super().__init__(parent)
-        self.setFixedSize(46, 26)
+        self._progress = 1.0
+        self.anim = QPropertyAnimation(self, b"progress", self)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self.setCheckable(True)
+        self.setChecked(True, emit=False)
+        self.setFixedSize(self.TRACK_W, self.TRACK_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAccessibleName("Toggle")
-        self._checked = True
-        self._pos = 22
-        self._focused = False
+        self.setAccessibleName(accessible_name)
 
-        self.anim = QPropertyAnimation(self, b"handle_pos")
-        self.anim.setEasingCurve(QEasingCurve.Type.OutExpo)
-        self.anim.setDuration(t.MOTION_TOGGLE)
+    def sizeHint(self):
+        return QSize(self.TRACK_W, self.TRACK_H)
 
-    @pyqtProperty(int)
-    def handle_pos(self):
-        return self._pos
+    @pyqtProperty(float)
+    def progress(self):
+        return self._progress
 
-    @handle_pos.setter
-    def handle_pos(self, pos):
-        self._pos = pos
+    @progress.setter
+    def progress(self, value):
+        self._progress = value
         self.update()
 
     def setChecked(self, checked: bool, emit: bool = True):
-        if self._checked == checked:
+        if not emit:
+            blocked = self.blockSignals(True)
+            super().setChecked(checked)
+            self.blockSignals(blocked)
+        else:
+            super().setChecked(checked)
+
+    def checkStateSet(self):
+        super().checkStateSet()
+        self._animate()
+
+    def nextCheckState(self):
+        super().nextCheckState()
+        self._animate()
+
+    def _animate(self):
+        target = 1.0 if self.isChecked() else 0.0
+        ms = duration(t.MOTION_TOGGLE)
+        self.anim.stop()
+        if ms == 0 or not self.isVisible():
+            self.progress = target
             return
-        self._checked = checked
-        self.anim.setEndValue(22 if checked else 2)
+        self.anim.setDuration(ms)
+        self.anim.setStartValue(self._progress)
+        self.anim.setEndValue(target)
         self.anim.start()
-        if emit:
-            self.toggled.emit(checked)
-
-    def isChecked(self) -> bool:
-        return self._checked
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.setChecked(not self._checked)
-        super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.setChecked(not self._checked)
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.click()
             event.accept()
             return
         super().keyPressEvent(event)
 
-    def focusInEvent(self, event):
-        self._focused = True
-        self.update()
-        super().focusInEvent(event)
-
-    def focusOutEvent(self, event):
-        self._focused = False
-        self.update()
-        super().focusOutEvent(event)
-
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(0, 0, self.width(), self.height())
+        radius = rect.height() / 2
 
-        if self._checked:
-            bg_color = QColor(t.ACCENT_PRIMARY)
-        else:
-            bg_color = QColor(255, 255, 255, 26)
-
+        off = QColor(t.BORDER_HOVER)
+        on = QColor(t.ACCENT_HOVER)
+        track = QColor(
+            round(off.red() + (on.red() - off.red()) * self._progress),
+            round(off.green() + (on.green() - off.green()) * self._progress),
+            round(off.blue() + (on.blue() - off.blue()) * self._progress),
+        )
+        if not self.isEnabled():
+            track.setAlpha(110)
         path = QPainterPath()
-        path.addRoundedRect(0, 0, self.width(), self.height(), 13, 13)
-        p.fillPath(path, QBrush(bg_color))
+        path.addRoundedRect(rect, radius, radius)
+        p.fillPath(path, track)
 
-        if self._focused:
-            p.setPen(QColor(t.ACCENT_HOVER))
-            p.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, 12, 12)
+        if self.hasFocus():
+            p.setPen(QPen(QColor(t.TEXT_PRIMARY), 2))
+            p.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius - 1, radius - 1)
 
-        handle_rect = QRect(self._pos, 2, 22, 22)
-        p.setBrush(QBrush(QColor(t.TEXT_PRIMARY)))
+        margin = (self.TRACK_H - self.HANDLE) / 2
+        travel = self.TRACK_W - self.HANDLE - margin * 2
+        x = margin + travel * self._progress
         p.setPen(Qt.PenStyle.NoPen)
-        p.save()
-        p.setBrush(QBrush(QColor(0, 0, 0, 50)))
-        p.drawEllipse(handle_rect.translated(0, 1))
-        p.restore()
-        p.drawEllipse(handle_rect)
+        p.setBrush(QColor(0, 0, 0, 60))
+        p.drawEllipse(QRectF(x, margin + 1, self.HANDLE, self.HANDLE))
+        p.setBrush(QColor(t.TEXT_PRIMARY))
+        p.drawEllipse(QRectF(x, margin, self.HANDLE, self.HANDLE))
 
 
 class ActionButton(QPushButton):
     def __init__(self, text, parent=None, primary: bool = False, destructive: bool = False):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(styles.button_qss(primary=primary, destructive=destructive))
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        if primary:
+            self.setProperty("variant", "primary")
+        elif destructive:
+            self.setProperty("variant", "destructive")
 
 
 class IconButton(QPushButton):
-    def __init__(self, svg_name: str, tooltip: str, accessible_name: str, parent=None):
+    def __init__(self, icon_name: str, tooltip: str, accessible_name: str, parent=None, danger: bool = False):
         super().__init__(parent)
         self.setFixedSize(t.ICON_BTN_SIZE, t.ICON_BTN_SIZE)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tooltip)
         self.setAccessibleName(accessible_name)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setIconSize(self.size() * 0.55)
-        self.setStyleSheet(styles.icon_button_qss())
-        self._svg_name = svg_name
-        self.set_svg(svg_name)
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.setIconSize(QSize(18, 18))
+        self.setProperty("variant", "icon")
+        if danger:
+            self.setProperty("danger", True)
+        self.set_icon_name(icon_name)
 
-    def set_svg(self, svg_name: str):
-        self._svg_name = svg_name
-        known_chrome_icon = any(
-            name in svg_name.lower()
-            for name in ("settings", "help", "minimize", "maximize", "restore", "close")
-        )
-        if known_chrome_icon:
-            icon = self._painted_icon(svg_name)
-        else:
-            icon = QIcon(icon_path(svg_name))
-            if icon.isNull():
-                icon = self._painted_icon(svg_name)
-        self.setIcon(icon)
+    def set_icon_name(self, icon_name: str):
+        self.setIcon(painted_icon(icon_name))
 
-    def _painted_icon(self, svg_name: str) -> QIcon:
-        size = t.ICON_BTN_SIZE
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
 
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor(t.TEXT_SECONDARY), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+def painted_icon(name: str, color: str = t.TEXT_SECONDARY, size: int = 18) -> QIcon:
+    scale = ICON_RENDER_SCALE
+    pixmap = QPixmap(size * scale, size * scale)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap.setDevicePixelRatio(scale)
 
-        name = svg_name.lower()
-        if "close" in name:
-            painter.drawLine(9, 9, 19, 19)
-            painter.drawLine(19, 9, 9, 19)
-        elif "minimize" in name:
-            painter.drawLine(9, 17, 19, 17)
-        elif "restore" in name:
-            painter.drawRect(8, 11, 9, 9)
-            painter.drawRect(11, 8, 9, 9)
-        elif "maximize" in name:
-            painter.drawRect(9, 9, 10, 10)
-        elif "help" in name:
-            painter.drawEllipse(7, 7, 14, 14)
-            painter.setFont(QFont("Inter", 11, QFont.Weight.Bold))
-            painter.drawText(0, 0, size, size, Qt.AlignmentFlag.AlignCenter, "?")
-        elif "settings" in name:
-            painter.drawEllipse(10, 10, 8, 8)
-            painter.drawEllipse(13, 13, 2, 2)
-            painter.drawLine(14, 6, 14, 9)
-            painter.drawLine(14, 19, 14, 22)
-            painter.drawLine(6, 14, 9, 14)
-            painter.drawLine(19, 14, 22, 14)
-            painter.drawLine(8, 8, 10, 10)
-            painter.drawLine(18, 18, 20, 20)
-            painter.drawLine(20, 8, 18, 10)
-            painter.drawLine(10, 18, 8, 20)
-        else:
-            painter.drawRect(9, 9, 10, 10)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QPen(QColor(color), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    c = size / 2
 
-        painter.end()
-        return QIcon(pixmap)
+    if name == "close":
+        p.drawLine(QPointF(5, 5), QPointF(13, 13))
+        p.drawLine(QPointF(13, 5), QPointF(5, 13))
+    elif name == "minimize":
+        p.drawLine(QPointF(5, 9), QPointF(13, 9))
+    elif name == "maximize":
+        p.drawRoundedRect(QRectF(5, 5, 8, 8), 1.5, 1.5)
+    elif name == "restore":
+        p.drawRoundedRect(QRectF(4.5, 7, 6.5, 6.5), 1.2, 1.2)
+        p.drawPolyline([QPointF(7, 7), QPointF(7, 4.5), QPointF(13.5, 4.5), QPointF(13.5, 11), QPointF(11, 11)])
+    elif name == "help":
+        p.drawEllipse(QPointF(c, c), 6.5, 6.5)
+        path = QPainterPath(QPointF(7, 7.2))
+        path.cubicTo(QPointF(7, 5.2), QPointF(11, 5.2), QPointF(11, 7.2))
+        path.cubicTo(QPointF(11, 8.6), QPointF(9, 8.8), QPointF(9, 10.4))
+        p.drawPath(path)
+        p.drawPoint(QPointF(9, 12.6))
+    elif name == "settings":
+        p.drawEllipse(QPointF(c, c), 2.4, 2.4)
+        p.drawEllipse(QPointF(c, c), 5.2, 5.2)
+        for i in range(8):
+            angle = math.radians(i * 45)
+            p.drawLine(
+                QPointF(c + math.cos(angle) * 5.2, c + math.sin(angle) * 5.2),
+                QPointF(c + math.cos(angle) * 7.2, c + math.sin(angle) * 7.2),
+            )
+    else:
+        p.drawRoundedRect(QRectF(5, 5, 8, 8), 1.5, 1.5)
+
+    p.end()
+    return QIcon(pixmap)
+
+
+def make_label(text: str = "", role: str = "body", tone: str = None, wrap: bool = False, parent=None) -> QLabel:
+    """Plain-text label styled by role. Plain text so device names or other
+    external strings are never interpreted as rich text."""
+    label = QLabel(parent)
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    label.setText(text)
+    label.setProperty("role", role)
+    if tone:
+        label.setProperty("tone", tone)
+    label.setWordWrap(wrap)
+    return label
+
+
+def set_tone(widget, tone):
+    styles.set_props(widget, tone=tone or "")
 
 
 class SectionLabel(QLabel):
     def __init__(self, text: str, parent=None):
-        super().__init__(text, parent)
-        self.setStyleSheet(styles.section_label_qss())
+        super().__init__(parent)
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setText(text)
+        self.setProperty("role", "section")
+
+
+class Panel(QWidget):
+    """Flat elevated surface. Styled via the app stylesheet."""
+
+    def __init__(self, kind: str = "true", parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setProperty("panel", kind)
 
 
 class StatPill(QWidget):
     def __init__(self, label: str, value: str = "--", parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(74)
-        self.setStyleSheet(styles.stat_pill_qss())
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setProperty("panel", "inset")
+        self.setMinimumHeight(68)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(t.SPACE_LG, t.SPACE_MD, t.SPACE_LG, t.SPACE_MD)
-        layout.setSpacing(t.SPACE_XS)
+        layout.setSpacing(2)
 
-        self.label = QLabel(label)
-        self.label.setStyleSheet(styles.section_label_qss())
-
-        self.value = QLabel(value)
-        self.value.setStyleSheet(styles.stat_value_qss())
+        self.label = SectionLabel(label)
+        self.value = make_label(value, role="value")
+        self.value.setMinimumWidth(0)
+        self.value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._label_text = label
 
         layout.addWidget(self.label)
         layout.addWidget(self.value)
 
     def set_value(self, value: str, accent: bool = False, warning: bool = False):
         self.value.setText(value)
-        self.value.setStyleSheet(styles.stat_value_qss(accent=accent, warning=warning))
+        self.setAccessibleName(f"{self._label_text}: {value}")
+        set_tone(self.value, "warning" if warning else ("accent" if accent else None))
 
 
 class ModeRow(QPushButton):
     apply_requested = pyqtSignal(int, int, object)
+    save_requested = pyqtSignal(int, int, int)
     delete_requested = pyqtSignal(str, int, int, bool)
+    active_clicked = pyqtSignal()
 
-    def __init__(self, width, height, ratio, label, is_custom=False, hz=None, is_active=False, parent=None):
+    def __init__(self, width, height, ratio, label, is_custom=False, hz=None, is_active=False,
+                 rates=None, parent=None):
         super().__init__(parent)
         self.res_width = width
         self.res_height = height
@@ -218,174 +265,80 @@ class ModeRow(QPushButton):
         self.label_text = label
         self.is_custom = is_custom
         self.hz = hz
+        self.rates = list(rates or [])
         self._is_active = is_active
-        self.setMinimumSize(154, 88)
+        max_hz = self.rates[0] if self.rates else None
+        self.setMinimumWidth(t.MODE_TILE_MIN_WIDTH)
+        self.setFixedHeight(t.MODE_TILE_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAccessibleName(
-            f"{'Active' if is_active else 'Apply'} resolution {width} x {height}"
-        )
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
-        self.setStyleSheet(styles.mode_row_qss(is_active=is_active, is_custom=is_custom))
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.setProperty("variant", "tile")
+        self.setProperty("custom", bool(is_custom))
+        self.setProperty("active", bool(is_active))
         self.clicked.connect(self._apply)
+
+        hz_text = f"{hz} Hz" if hz else (f"up to {max_hz} Hz" if max_hz else "Highest Hz")
+        state_text = "Active" if is_active else hz_text
+        name = f"{label}, " if (is_custom and label) else ""
+        self.setAccessibleName(
+            f"{name}{width} by {height}, {ratio}, {state_text}"
+            + ("" if is_active else ". Press to apply")
+        )
+        self.setToolTip("Current resolution" if is_active else "Apply this resolution. Right-click for more.")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(t.SPACE_MD, t.SPACE_MD, t.SPACE_MD, t.SPACE_MD)
-        layout.setSpacing(t.SPACE_XS)
+        layout.setSpacing(2)
 
-        title = QLabel(f"{width} x {height}")
+        title = make_label(f"{width} × {height}", role="strong")
         title.setMinimumWidth(0)
         title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        title.setStyleSheet(styles.body_label_qss())
+        title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
-        meta_bits = [ratio]
-        if label:
-            meta_bits.append(label)
-        if is_custom:
-            meta_bits.append("custom")
-        meta = QLabel("  /  ".join(meta_bits))
+        meta_bits = [label] if (is_custom and label) else [ratio]
+        meta = make_label("  ·  ".join(bit for bit in meta_bits if bit), role="caption")
         meta.setMinimumWidth(0)
         meta.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        meta.setStyleSheet(styles.muted_label_qss(t.FONT_SM))
+        meta.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
-        state = "ACTIVE" if is_active else (f"{hz} Hz" if hz else "Best Hz")
-        hz_text = QLabel(state)
-        hz_text.setStyleSheet(
-            styles.body_label_qss() if not is_active else
-            f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_MD}px; font-weight: 700; border: none; background: transparent;"
-        )
+        state = make_label(("●  Active" if is_active else hz_text), role="caption" if not is_active else "strong")
+        state.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         layout.addWidget(title)
         layout.addWidget(meta)
         layout.addStretch()
-        layout.addWidget(hz_text)
+        layout.addWidget(state)
 
     def _apply(self):
         if self._is_active:
+            self.active_clicked.emit()
             return
         self.apply_requested.emit(self.res_width, self.res_height, self.hz)
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
-        menu.setStyleSheet(styles.menu_qss())
-        action_text = "Delete Custom Resolution" if self.is_custom else "Hide Preset"
+        apply_action = menu.addAction("Apply")
+        apply_action.setEnabled(not self._is_active)
+        rate_actions = {}
+        save_actions = {}
+        if not self.is_custom and self.rates:
+            apply_at = menu.addMenu("Apply at")
+            save_at = menu.addMenu("Save to My Modes at")
+            for rate in self.rates:
+                rate_actions[apply_at.addAction(f"{rate} Hz")] = rate
+                save_actions[save_at.addAction(f"{rate} Hz")] = rate
+        menu.addSeparator()
+        action_text = "Delete from My Modes" if self.is_custom else "Hide from List"
         delete_action = menu.addAction(action_text)
         action = menu.exec(event.globalPos())
+        if action is None:
+            return
         if action == delete_action:
             self.delete_requested.emit(self.label_text, self.res_width, self.res_height, self.is_custom)
-
-
-class ResolutionHero(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setStyleSheet(styles.resolution_hero_qss())
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(t.SPACE_XL, t.SPACE_XL, t.SPACE_XL, t.SPACE_XL)
-
-        self.section_label = QLabel("CURRENT RESOLUTION")
-        self.section_label.setStyleSheet(styles.section_label_qss() + " letter-spacing: 2px;")
-        self.section_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.res_label = QLabel("1920 × 1080")
-        self.res_label.setStyleSheet(
-            f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_2XL}px; font-weight: 700; border: none; background: transparent;"
-        )
-        self.res_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.hz_label = QLabel("144 Hz")
-        self.hz_label.setStyleSheet(
-            f"color: {t.ACCENT_PRIMARY}; font-size: {t.FONT_LG}px; font-weight: 600; border: none; background: transparent;"
-        )
-        self.hz_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        layout.addWidget(self.section_label)
-        layout.addWidget(self.res_label)
-        layout.addWidget(self.hz_label)
-
-    def set_resolution(self, width: int, height: int, hz: int):
-        self.res_label.setText(f"{width} × {height}")
-        self.hz_label.setText(f"{hz} Hz")
-
-
-class PresetCard(QPushButton):
-    delete_requested = pyqtSignal(str, int, int, bool)
-
-    def __init__(
-        self,
-        width,
-        height,
-        ratio,
-        label,
-        is_custom=False,
-        hz=None,
-        is_active=False,
-        parent=None,
-    ):
-        super().__init__(parent)
-        self.res_width = width
-        self.res_height = height
-        self.is_custom = is_custom
-        self.label_text = label
-        self.hz = hz
-        self._is_active = is_active
-        self._card_opacity = 1.0
-        self._offset_y = 0
-
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(t.PRESET_CARD_WIDTH, t.PRESET_CARD_HEIGHT)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 10, 0, 10)
-        layout.setSpacing(2)
-
-        hz_text = f" @ {hz}Hz" if hz else ""
-        res_label = QLabel(f"{width} × {height}{hz_text}")
-        res_label.setStyleSheet(styles.preset_card_label_qss(primary=True))
-        res_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        ratio_label = QLabel(ratio)
-        ratio_label.setStyleSheet(styles.preset_card_label_qss(primary=False))
-        ratio_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        desc_label = QLabel(label)
-        desc_label.setStyleSheet(styles.preset_card_label_qss(primary=None))
-        desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        layout.addWidget(res_label)
-        layout.addWidget(ratio_label)
-        layout.addWidget(desc_label)
-
-        self._apply_style()
-
-        self._apply_style()
-
-    @pyqtProperty(int)
-    def offset_y(self):
-        return self._offset_y
-
-    @offset_y.setter
-    def offset_y(self, value):
-        self._offset_y = value
-        self.move(self.x(), self.parent().mapFromGlobal(self.mapToGlobal(self.rect().topLeft())).y() if self.parent() else self.y())
-
-    def set_active(self, active: bool):
-        self._is_active = active
-        self._apply_style()
-
-    def _apply_style(self):
-        self.setStyleSheet(styles.preset_card_qss(is_custom=self.is_custom, is_active=self._is_active))
-
-    def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        menu.setStyleSheet(styles.menu_qss())
-        action_text = "Delete Custom Resolution" if self.is_custom else "Hide Preset"
-        del_action = menu.addAction(action_text)
-        action = menu.exec(event.globalPos())
-        if action == del_action:
-            self.delete_requested.emit(self.label_text, self.res_width, self.res_height, self.is_custom)
-
-    def animate_entrance(self, delay_ms: int = 0):
-        # Disabled due to QGraphicsOpacityEffect black-box rendering bug on Windows
-        pass
+        elif action == apply_action:
+            self._apply()
+        elif action in rate_actions:
+            self.apply_requested.emit(self.res_width, self.res_height, rate_actions[action])
+        elif action in save_actions:
+            self.save_requested.emit(self.res_width, self.res_height, save_actions[action])
