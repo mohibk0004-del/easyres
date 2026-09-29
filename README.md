@@ -61,7 +61,7 @@ Bump `CURRENT_VERSION` in `updater.py`, then attach the packaged binary to each 
 
 ## Technical Architecture
 
-* **Frontend:** PyQt6 with a single property-driven stylesheet (`theme/styles.py`), custom painted widgets, native window move/resize (`startSystemMove`/`startSystemResize`), and background workers for every blocking system call.
+* **Frontend:** PyQt6 sidebar + pages shell (`ui/app_window.py`, `ui/pages/`) driven by a widget-free `AppController` (`ui/controller.py`). Native Windows chrome via DWM (`ui/native_chrome.py`: real shadow, Win11 rounded corners, Snap Layouts), in-window sheets, a single property-driven stylesheet (`theme/styles.py`), and background workers for every blocking system call. Set `EASYRES_QT_FRAME=1` to fall back to a Qt-only frame.
 * **Backend Core:** `ctypes` bindings to `user32.dll` and `kernel32.dll`.
 * **Display Parsing:** Extracts valid EDID bounds via `EnumDisplaySettingsW` and synthesizes clean `DEVMODE` memory blocks to prevent driver-padding rejection.
 

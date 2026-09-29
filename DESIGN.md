@@ -164,7 +164,8 @@ EasyRes uses structural elevation: near-black tonal layers and one-pixel borders
 
 ### Shadow Vocabulary
 
-- **Window Ambient** (`0 10px 30px rgba(0, 0, 0, 0.59)`): Frameless window and dialog separation only.
+- **Window Ambient:** The main window uses the native Windows (DWM) shadow and, on Windows 11, native rounded corners. Tray-mode dialogs keep a Qt shadow (`0 10px 30px rgba(0, 0, 0, 0.59)`).
+- **Sheet Lift:** In-window sheets sit on a 40% black dim with a soft painted shadow.
 
 ### Named Rules
 
@@ -177,8 +178,9 @@ Controls feel compact, precise, and immediately responsive.
 ### Buttons
 
 - **Shape:** Gently rounded rectangle (`lg`).
-- **Primary:** Signal Blurple with Primary Frost text and compact padding.
-- **Hover / Focus:** Darker accent on hover; a clearly visible blurple focus treatment.
+- **Primary:** Deep Signal Blurple (`signal-blurple-hover`) fill with Primary Frost text (5.9:1). White text never sits on `signal-blurple` (4.2:1).
+- **Destructive:** Red tint fill with a red border and Primary Frost text.
+- **Hover / Focus:** Border brightens on hover; focus changes border colour only, so nothing shifts. Buttons take focus from the keyboard only.
 - **Secondary / Ghost / Tertiary:** Graphite surface for ordinary actions; transparent icon buttons for window chrome; red only for destructive actions.
 
 ### Chips
@@ -202,18 +204,48 @@ Controls feel compact, precise, and immediately responsive.
 
 ### Navigation
 
-- **Style:** Compact frameless title bar and system tray menu. Labels use Inter; active and hover states use restrained accent tint.
-- **Mobile treatment:** Not applicable. Responsive behavior targets Windows desktop scaling and compact window widths.
+- **Sidebar:** Switch, Custom, Monitors, Hotkeys, with Settings pinned at the bottom. The selection is a tinted pill that slides between items. Below 900px of window width the sidebar collapses to a 60px icon rail.
+- **Header:** The status strip (Current, Refresh, Mode, Monitors) and window controls. Empty header space drags the window; the maximize button supports Windows 11 Snap Layouts.
+- **Recovery bar:** Always visible. Status message on the left, then Restore Native and Restore Native + Enable Monitors.
+- **Keyboard:** Ctrl+1…5 switch pages, Ctrl+K opens the command palette, Ctrl+F searches resolutions, Ctrl+Shift+R restores native.
 
-### Resolution Preset
+### Sheets
 
-- **Style:** Fixed compact mode tile showing resolution first, aspect ratio second, and description last.
-- **State:** Active mode receives an explicit accent outline; custom modes use a distinct graphite variant.
+- **Style:** Raised Black card, `xl` radius, sliding down from under the header over a 40% dim. Replace dialogs while the window is visible.
+- **Behavior:** Focus is trapped inside; Esc dismisses (Esc on the keep/revert sheet means revert); Enter triggers the right-most button.
+
+### Resolution Tile
+
+- **Style:** Painted tile showing resolution, then aspect ratio (or saved name), then refresh rate.
+- **State:** The active mode gets a blurple border, a tinted fill and an "● Active" label. A pending switch shows a spinner and "Switching…". Saved modes use the custom graphite variant. Pressing scales the tile to 97%.
+
+### Segmented Control
+
+- **Style:** Graphite track with a border-grey thumb that slides to the selected segment. Arrow keys move the selection.
+
+### Grouped List Rows
+
+- **Style:** Settings-style rows inside one rounded panel, separated by inset hairlines. Title and optional subtitle on the left, control on the right.
 
 ### Hardware Monitor Toggle
 
-- **Style:** A 46px by 26px toggle with a clear handle and keyboard focus.
+- **Style:** A 44px by 24px switch; a checkable button, so screen readers announce its state. Each toggle is named after its monitor.
 - **Behavior:** It changes hardware monitor state only when directly operated. Resolution controls never trigger it.
+
+## Motion
+
+Every animation is skipped when Windows "Animation effects" is off. No bounce or elastic curves.
+
+| Interaction | Motion |
+|---|---|
+| Page change | 180 ms cross-fade, new page rises 8 px |
+| Sidebar pill / segmented thumb | Critically damped spring, 220 ms |
+| Tile press | Scale to 0.97, spring back on release |
+| Active tile | Border and fill cross-fade, 150 ms |
+| Sheet | In 200 ms (slide 12 px + fade + dim), out 140 ms ease-in |
+| Status message | Fade in and rise 6 px; fades out after 4 s |
+| Status values | 120 ms cross-fade |
+| Toggle | 180 ms ease-out |
 
 ## Do's and Don'ts
 

@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import (
     Qt, QPropertyAnimation, QEasingCurve, QRectF, QPointF, QSize, pyqtProperty, pyqtSignal,
 )
-from PyQt6.QtGui import QPainter, QPainterPath, QColor, QIcon, QPixmap, QPen
+from PyQt6.QtGui import QPainter, QPainterPath, QColor, QIcon, QPixmap, QPen, QFontMetrics
 
 from theme import tokens as t
 from theme import styles
@@ -152,13 +152,45 @@ def painted_icon(name: str, color: str = t.TEXT_SECONDARY, size: int = 18) -> QI
     pixmap = QPixmap(size * scale, size * scale)
     pixmap.fill(Qt.GlobalColor.transparent)
     pixmap.setDevicePixelRatio(scale)
-
     p = QPainter(pixmap)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(QPen(QColor(color), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-    c = size / 2
+    draw_glyph(p, name, color)
+    p.end()
+    return QIcon(pixmap)
 
-    if name == "close":
+
+def draw_glyph(p: QPainter, name: str, color, size: int = 18):
+    """Draw a line icon in an 18×18 box at the painter's origin."""
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.setPen(QPen(QColor(color), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    if size != 18:
+        p.scale(size / 18, size / 18)
+    c = 9
+
+    if name == "switch":
+        p.drawLine(QPointF(3.5, 6), QPointF(14, 6))
+        p.drawPolyline([QPointF(11.5, 3.5), QPointF(14, 6), QPointF(11.5, 8.5)])
+        p.drawLine(QPointF(14.5, 12), QPointF(4, 12))
+        p.drawPolyline([QPointF(6.5, 9.5), QPointF(4, 12), QPointF(6.5, 14.5)])
+    elif name == "custom":
+        p.drawRoundedRect(QRectF(2.5, 3.5, 13, 11), 2, 2)
+        p.drawLine(QPointF(c, 6.5), QPointF(c, 11.5))
+        p.drawLine(QPointF(6.5, c), QPointF(11.5, c))
+    elif name == "monitor":
+        p.drawRoundedRect(QRectF(2.5, 3, 13, 9), 1.8, 1.8)
+        p.drawLine(QPointF(c, 12), QPointF(c, 15))
+        p.drawLine(QPointF(6, 15), QPointF(12, 15))
+    elif name == "keyboard":
+        p.drawRoundedRect(QRectF(2, 4.5, 14, 9), 2, 2)
+        for x in (5, 8, 11):
+            p.drawPoint(QPointF(x, 7.5))
+        p.drawPoint(QPointF(13, 7.5))
+        p.drawLine(QPointF(6, 10.8), QPointF(12, 10.8))
+    elif name == "search":
+        p.drawEllipse(QPointF(8, 8), 4.5, 4.5)
+        p.drawLine(QPointF(11.4, 11.4), QPointF(15, 15))
+    elif name == "close":
         p.drawLine(QPointF(5, 5), QPointF(13, 13))
         p.drawLine(QPointF(13, 5), QPointF(5, 13))
     elif name == "minimize":
@@ -186,9 +218,7 @@ def painted_icon(name: str, color: str = t.TEXT_SECONDARY, size: int = 18) -> QI
             )
     else:
         p.drawRoundedRect(QRectF(5, 5, 8, 8), 1.5, 1.5)
-
-    p.end()
-    return QIcon(pixmap)
+    p.restore()
 
 
 def make_label(text: str = "", role: str = "body", tone: str = None, wrap: bool = False, parent=None) -> QLabel:
@@ -225,36 +255,105 @@ class Panel(QWidget):
         self.setProperty("panel", kind)
 
 
-class StatPill(QWidget):
-    def __init__(self, label: str, value: str = "--", parent=None):
+TONE_COLORS = {
+    "": t.TEXT_PRIMARY,
+    None: t.TEXT_PRIMARY,
+    "accent": t.ACCENT_PRIMARY,
+    "warning": t.DESTRUCTIVE_HOVER,
+}
+
+
+class StatusItem(QWidget):
+    """Caption + value, painted. Value changes cross-fade."""
+
+    def __init__(self, caption: str, value: str = "--", parent=None):
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setProperty("panel", "inset")
-        self.setMinimumHeight(68)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(t.SPACE_LG, t.SPACE_MD, t.SPACE_LG, t.SPACE_MD)
-        layout.setSpacing(2)
+        self._caption = caption
+        self._value = value
+        self._old_value = None
+        self._tone = ""
+        self._old_tone = ""
+        self._fade = 1.0
+        self._anim = None
+        self.setAccessibleName(f"{caption}: {value}")
+        self.setMinimumWidth(72)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(38)
 
-        self.label = SectionLabel(label)
-        self.value = make_label(value, role="value")
-        self.value.setMinimumWidth(0)
-        self.value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self._label_text = label
+    def sizeHint(self):
+        width = max(QFontMetrics(self._value_font()).horizontalAdvance(self._value),
+                    QFontMetrics(self._caption_font()).horizontalAdvance(self._caption))
+        return QSize(width + 4, 38)
 
-        layout.addWidget(self.label)
-        layout.addWidget(self.value)
+    def _caption_font(self):
+        font = self.font()
+        font.setPixelSize(t.FONT_XS)
+        font.setWeight(font.Weight.DemiBold)
+        return font
 
-    def set_value(self, value: str, accent: bool = False, warning: bool = False):
-        self.value.setText(value)
-        self.setAccessibleName(f"{self._label_text}: {value}")
-        set_tone(self.value, "warning" if warning else ("accent" if accent else None))
+    def _value_font(self):
+        font = self.font()
+        font.setPixelSize(t.FONT_LG)
+        font.setWeight(font.Weight.Bold)
+        return font
+
+    def set_value(self, value: str, tone: str = ""):
+        tone = tone or ""
+        if value == self._value and tone == self._tone:
+            return
+        from ui import motion
+        self._old_value, self._old_tone = self._value, self._tone
+        self._value, self._tone = value, tone
+        self.setAccessibleName(f"{self._caption}: {value}")
+        self.updateGeometry()
+        motion.stop(self._anim)
+        self._anim = motion.tween(self, 0.0, 1.0, t.MOTION_VALUE, self._set_fade)
+
+    def value(self):
+        return self._value
+
+    def _set_fade(self, value):
+        self._fade = float(value)
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        p.setFont(self._caption_font())
+        p.setPen(QColor(t.TEXT_SECONDARY))
+        p.drawText(QRectF(0, 0, self.width(), 14), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   self._caption)
+        p.setFont(self._value_font())
+        value_rect = QRectF(0, 16, self.width(), 22)
+        if self._fade < 1.0 and self._old_value is not None:
+            p.setOpacity(1.0 - self._fade)
+            p.setPen(QColor(TONE_COLORS.get(self._old_tone, t.TEXT_PRIMARY)))
+            p.drawText(value_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._old_value)
+        p.setOpacity(self._fade)
+        p.setPen(QColor(TONE_COLORS.get(self._tone, t.TEXT_PRIMARY)))
+        p.drawText(value_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._value)
 
 
-class ModeRow(QPushButton):
+def mix(a, b, amount):
+    a, b = QColor(a), QColor(b)
+    return QColor(
+        round(a.red() + (b.red() - a.red()) * amount),
+        round(a.green() + (b.green() - a.green()) * amount),
+        round(a.blue() + (b.blue() - a.blue()) * amount),
+        round(a.alpha() + (b.alpha() - a.alpha()) * amount),
+    )
+
+
+class ModeTile(QAbstractButton):
+    """A resolution tile, fully painted so press, active and pending states
+    animate without child widgets or stylesheet re-polishing."""
+
     apply_requested = pyqtSignal(int, int, object)
     save_requested = pyqtSignal(int, int, int)
     delete_requested = pyqtSignal(str, int, int, bool)
     active_clicked = pyqtSignal()
+
+    PRESS_SCALE = 0.97
 
     def __init__(self, width, height, ratio, label, is_custom=False, hz=None, is_active=False,
                  rates=None, parent=None):
@@ -267,48 +366,175 @@ class ModeRow(QPushButton):
         self.hz = hz
         self.rates = list(rates or [])
         self._is_active = is_active
-        max_hz = self.rates[0] if self.rates else None
+        self._active_p = 1.0 if is_active else 0.0
+        self._hover = False
+        self._scale = 1.0
+        self._pending = False
+        self._spin = 0.0
+        self._anims = {}
+        self._spinner = None
+
         self.setMinimumWidth(t.MODE_TILE_MIN_WIDTH)
         self.setFixedHeight(t.MODE_TILE_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
-        self.setProperty("variant", "tile")
-        self.setProperty("custom", bool(is_custom))
-        self.setProperty("active", bool(is_active))
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.clicked.connect(self._apply)
+        self._update_text()
 
-        hz_text = f"{hz} Hz" if hz else (f"up to {max_hz} Hz" if max_hz else "Highest Hz")
-        state_text = "Active" if is_active else hz_text
-        name = f"{label}, " if (is_custom and label) else ""
-        self.setAccessibleName(
-            f"{name}{width} by {height}, {ratio}, {state_text}"
-            + ("" if is_active else ". Press to apply")
-        )
-        self.setToolTip("Current resolution" if is_active else "Apply this resolution. Right-click for more.")
+    # -- state --------------------------------------------------------
+    def _hz_text(self):
+        if self.hz:
+            return f"{self.hz} Hz"
+        return f"up to {self.rates[0]} Hz" if self.rates else "Highest Hz"
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(t.SPACE_MD, t.SPACE_MD, t.SPACE_MD, t.SPACE_MD)
-        layout.setSpacing(2)
+    def _update_text(self):
+        name = f"{self.label_text}, " if (self.is_custom and self.label_text) else ""
+        state = "Active" if self._is_active else ("Switching" if self._pending else self._hz_text())
+        self.setAccessibleName(f"{name}{self.res_width} by {self.res_height}, {self.ratio}, {state}"
+                               + ("" if self._is_active else ". Press to apply"))
+        self.setToolTip("Current resolution" if self._is_active else "Apply. Right-click for refresh rates and more.")
 
-        title = make_label(f"{width} × {height}", role="strong")
-        title.setMinimumWidth(0)
-        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    def matches(self, w, h, hz):
+        return self.res_width == w and self.res_height == h and (hz is None or self.hz in (None, hz))
 
-        meta_bits = [label] if (is_custom and label) else [ratio]
-        meta = make_label("  ·  ".join(bit for bit in meta_bits if bit), role="caption")
-        meta.setMinimumWidth(0)
-        meta.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        meta.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    def set_active(self, active):
+        if active == self._is_active:
+            return
+        self._is_active = active
+        self.set_pending(False)
+        self._update_text()
+        self._animate("active", self._active_p, 1.0 if active else 0.0, t.MOTION_FAST, "_active_p")
 
-        state = make_label(("●  Active" if is_active else hz_text), role="caption" if not is_active else "strong")
-        state.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    def set_pending(self, pending):
+        from ui import motion
+        if pending == self._pending:
+            return
+        self._pending = pending
+        self._update_text()
+        motion.stop(self._spinner)
+        self._spinner = None
+        if pending and duration(1):
+            from PyQt6.QtCore import QVariantAnimation
+            self._spinner = QVariantAnimation(self)
+            self._spinner.setStartValue(0.0)
+            self._spinner.setEndValue(360.0)
+            self._spinner.setDuration(900)
+            self._spinner.setLoopCount(-1)
+            self._spinner.valueChanged.connect(self._set_spin)
+            self._spinner.start()
+        self.update()
 
-        layout.addWidget(title)
-        layout.addWidget(meta)
-        layout.addStretch()
-        layout.addWidget(state)
+    def _set_spin(self, value):
+        self._spin = float(value)
+        self.update()
+
+    def _animate(self, key, start, end, ms, attr, curve=None):
+        from ui import motion
+        motion.stop(self._anims.get(key))
+
+        def apply(value):
+            setattr(self, attr, float(value))
+            self.update()
+
+        self._anims[key] = motion.tween(self, start, end, ms, apply, curve=curve)
+
+    # -- input --------------------------------------------------------
+    def event(self, event):
+        if event.type() == event.Type.HoverEnter:
+            self._hover = True
+            self.update()
+        elif event.type() == event.Type.HoverLeave:
+            self._hover = False
+            self.update()
+        return super().event(event)
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._animate("scale", self._scale, self.PRESS_SCALE, 90, "_scale")
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        from ui import motion
+        self._animate("scale", self._scale, 1.0, t.MOTION_SPRING, "_scale", motion.spring_curve())
+
+    def sizeHint(self):
+        return QSize(t.MODE_TILE_MIN_WIDTH, t.MODE_TILE_HEIGHT)
+
+    # -- paint --------------------------------------------------------
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.isEnabled():
+            p.setOpacity(0.55)
+
+        w, h = self.width(), self.height()
+        if self._scale != 1.0:
+            p.translate(w / 2, h / 2)
+            p.scale(self._scale, self._scale)
+            p.translate(-w / 2, -h / 2)
+
+        base = QColor(t.BG_CARD_CUSTOM if self.is_custom else t.BG_CARD)
+        hover = QColor(t.BG_CARD_CUSTOM_HOVER if self.is_custom else t.BG_CARD_HOVER)
+        bg = hover if (self._hover and self.isEnabled()) else base
+        active_bg = mix(base, t.ACCENT_PRIMARY, 0.12)
+        bg = mix(bg, active_bg, self._active_p)
+
+        border = bg
+        if self._hover and self.isEnabled():
+            border = QColor(t.BORDER_HOVER)
+        border = mix(border, t.ACCENT_PRIMARY, self._active_p)
+        if self.hasFocus():
+            border = QColor(t.ACCENT_PRIMARY)
+
+        rect = QRectF(1, 1, w - 2, h - 2)
+        path = QPainterPath()
+        path.addRoundedRect(rect, t.RADIUS_MD, t.RADIUS_MD)
+        p.fillPath(path, bg)
+        p.setPen(QPen(border, 2))
+        p.drawRoundedRect(rect, t.RADIUS_MD, t.RADIUS_MD)
+
+        pad = t.SPACE_MD
+        text_w = w - pad * 2
+        font = self.font()
+        font.setPixelSize(t.FONT_MD)
+        font.setWeight(font.Weight.Bold)
+        p.setFont(font)
+        p.setPen(QColor(t.TEXT_PRIMARY))
+        fm = QFontMetrics(font)
+        p.drawText(QRectF(pad, pad - 1, text_w, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   fm.elidedText(f"{self.res_width} × {self.res_height}", Qt.TextElideMode.ElideRight, int(text_w)))
+
+        font.setPixelSize(t.FONT_SM)
+        font.setWeight(font.Weight.Normal)
+        p.setFont(font)
+        p.setPen(QColor(t.TEXT_SECONDARY))
+        meta = self.label_text if (self.is_custom and self.label_text) else self.ratio
+        fm = QFontMetrics(font)
+        p.drawText(QRectF(pad, pad + 18, text_w, 16), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   fm.elidedText(meta or "", Qt.TextElideMode.ElideRight, int(text_w)))
+
+        bottom = QRectF(pad, h - pad - 16, text_w, 16)
+        if self._pending:
+            arc = QRectF(pad, h - pad - 13, 10, 10)
+            p.setPen(QPen(QColor(t.TEXT_PRIMARY), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawArc(arc, int(-self._spin * 16), 270 * 16)
+            p.drawText(bottom.adjusted(16, 0, 0, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                       "Switching…")
+        elif self._active_p > 0.5:
+            font.setWeight(font.Weight.DemiBold)
+            p.setFont(font)
+            p.setPen(QColor(t.TEXT_PRIMARY))
+            p.setBrush(QColor(t.ACCENT_PRIMARY))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QRectF(pad, h - pad - 11, 6, 6))
+            p.setPen(QColor(t.TEXT_PRIMARY))
+            p.drawText(bottom.adjusted(12, 0, 0, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                       "Active")
+        else:
+            p.drawText(bottom, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._hz_text())
 
     def _apply(self):
         if self._is_active:

@@ -74,8 +74,8 @@ def main():
 
         app.setFont(load_app_font())
 
-        from ui.main_window import MainWindow
-        window = MainWindow()
+        from ui.app_window import AppWindow
+        window = AppWindow()
         window.show()
         sys.exit(app.exec())
     except Exception:

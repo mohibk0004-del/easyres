@@ -1,5 +1,7 @@
 # EasyRes UI Overhaul Plan
 
+> **Status:** Implemented as a sidebar + pages shell (`ui/app_window.py`) with state in `ui/controller.py`, native DWM chrome (`ui/native_chrome.py`), in-window sheets, and the motion system described in `DESIGN.md`. The sections below are the original brief.
+
 ## Outcome
 
 Turn EasyRes into a focused match-prep console where active display state, quick switching, and recovery are obvious at a glance. Preserve the existing black, graphite, neutral-white, and blurple palette. Keep resolution changes and hardware monitor changes independent in both layout and behavior.

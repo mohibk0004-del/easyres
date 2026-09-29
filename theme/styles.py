@@ -103,30 +103,46 @@ def app_qss() -> str:
         }}
 
         /* ---------- Surfaces ---------- */
-        QWidget#Container {{
+        QWidget#Root {{
             background-color: {t.BG_BASE};
-            border: 1px solid {t.BORDER_SUBTLE};
-            border-radius: {t.RADIUS_XL}px;
         }}
-        QWidget#Container[maximized="true"] {{
-            border: none;
-            border-radius: 0px;
-        }}
-        QWidget#TitleBar {{
+        QWidget#Sidebar {{
             background-color: {t.BG_ELEVATED};
+            border-right: 1px solid {t.BORDER_SUBTLE};
+        }}
+        QWidget#Header {{
+            background-color: {t.BG_BASE};
             border-bottom: 1px solid {t.BORDER_SUBTLE};
-            border-top-left-radius: {t.RADIUS_XL}px;
-            border-top-right-radius: {t.RADIUS_XL}px;
         }}
         QWidget#ActionBar {{
             background-color: {t.BG_ELEVATED};
             border-top: 1px solid {t.BORDER_SUBTLE};
-            border-bottom-left-radius: {t.RADIUS_XL}px;
-            border-bottom-right-radius: {t.RADIUS_XL}px;
         }}
-        QWidget#Container[maximized="true"] QWidget#TitleBar,
-        QWidget#Container[maximized="true"] QWidget#ActionBar {{
-            border-radius: 0px;
+        QWidget#SheetCard, QWidget#DialogCard {{
+            background-color: {t.BG_ELEVATED};
+            border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: {t.RADIUS_XL}px;
+        }}
+        QFrame#Hairline {{
+            background-color: {t.BORDER_SUBTLE};
+            border: none;
+            margin-left: {t.SPACE_LG}px;
+        }}
+        QListWidget#Palette {{
+            background-color: {t.BG_CARD};
+            border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: {t.RADIUS_MD}px;
+            padding: 4px;
+            outline: 0;
+        }}
+        QListWidget#Palette::item {{
+            padding: 7px 10px;
+            border-radius: {t.RADIUS_SM}px;
+            color: {t.TEXT_PRIMARY};
+        }}
+        QListWidget#Palette::item:selected {{
+            background-color: {t.ACCENT_MUTED_BG};
+            color: {t.TEXT_PRIMARY};
         }}
         QWidget[panel="true"] {{
             background-color: {t.BG_ELEVATED};
@@ -154,6 +170,10 @@ def app_qss() -> str:
         }}
         QLabel[role="app-title"] {{
             font-size: {t.FONT_LG}px;
+            font-weight: 700;
+        }}
+        QLabel[role="page-title"] {{
+            font-size: 22px;
             font-weight: 700;
         }}
         QLabel[role="dialog-title"] {{
@@ -209,18 +229,6 @@ def app_qss() -> str:
             background-color: {t.DESTRUCTIVE_MUTED_BG};
             border-color: {t.DESTRUCTIVE};
         }}
-        QLabel#Toast {{
-            font-size: {t.FONT_SM}px;
-            font-weight: 500;
-            color: {t.TEXT_SECONDARY};
-            padding: 0 4px;
-        }}
-        QLabel#Toast[tone="success"] {{
-            color: {t.TEXT_PRIMARY};
-        }}
-        QLabel#Toast[tone="warning"] {{
-            color: {t.DESTRUCTIVE_HOVER};
-        }}
 
         /* ---------- Buttons ---------- */
         {_button('QPushButton', t.BG_CARD_HOVER, t.BORDER_DEFAULT, t.TEXT_PRIMARY,
@@ -235,12 +243,13 @@ def app_qss() -> str:
         QPushButton[variant="pill"] {{
             background-color: {t.ACCENT_HOVER};
             border: 2px solid {t.ACCENT_HOVER};
-            border-radius: 13px;
+            border-radius: 12px;
             color: {t.TEXT_PRIMARY};
             font-size: {t.FONT_SM}px;
             font-weight: 700;
-            padding: 3px 12px;
-            min-height: 14px;
+            padding: 2px 12px;
+            min-height: 16px;
+            max-height: 16px;
         }}
         QPushButton[variant="pill"]:hover {{
             border-color: {t.ACCENT_PRIMARY};
@@ -260,7 +269,7 @@ def app_qss() -> str:
             padding: 2px;
             min-height: 0px;
         }}
-        QPushButton[variant="icon"]:hover {{
+        QPushButton[variant="icon"]:hover, QPushButton[variant="icon"][hover="true"] {{
             background-color: {t.BG_CARD_HOVER};
         }}
         QPushButton[variant="icon"]:pressed {{
@@ -271,40 +280,6 @@ def app_qss() -> str:
         }}
         QPushButton[variant="icon"][danger="true"]:hover {{
             background-color: {t.DESTRUCTIVE};
-        }}
-        QPushButton[variant="tile"] {{
-            background-color: {t.BG_CARD};
-            border: 2px solid {t.BG_CARD};
-            border-radius: {t.RADIUS_MD}px;
-            text-align: left;
-            padding: 0px;
-            /* QSS sizes the contents rect; subtract the 2px border on each side. */
-            min-height: {t.MODE_TILE_HEIGHT - 4}px;
-            max-height: {t.MODE_TILE_HEIGHT - 4}px;
-        }}
-        QPushButton[variant="tile"][custom="true"] {{
-            background-color: {t.BG_CARD_CUSTOM};
-            border-color: {t.BG_CARD_CUSTOM};
-        }}
-        QPushButton[variant="tile"]:hover {{
-            background-color: {t.BG_CARD_HOVER};
-            border-color: {t.BORDER_HOVER};
-        }}
-        QPushButton[variant="tile"][custom="true"]:hover {{
-            background-color: {t.BG_CARD_CUSTOM_HOVER};
-        }}
-        QPushButton[variant="tile"]:pressed {{
-            background-color: {t.ACCENT_MUTED_BG};
-        }}
-        QPushButton[variant="tile"][active="true"] {{
-            background-color: {t.ACCENT_MUTED_BG};
-            border-color: {t.ACCENT_PRIMARY};
-        }}
-        QPushButton[variant="tile"]:focus {{
-            border-color: {t.ACCENT_PRIMARY};
-        }}
-        QPushButton[variant="tile"]:disabled {{
-            color: {t.TEXT_MUTED};
         }}
 
         /* ---------- Inputs ---------- */
