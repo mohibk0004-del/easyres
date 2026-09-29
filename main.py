@@ -107,8 +107,7 @@ def main():
         from PyQt6.QtGui import QIcon
 
         app = QApplication(sys.argv)
-        app.setStyle(styles.AppStyle())
-        app.setStyleSheet(styles.app_qss())
+        styles.apply_app_style(app)
         app.setWindowIcon(QIcon(os.path.join(asset_base_path(), "icon.png")))
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)

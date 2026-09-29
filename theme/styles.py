@@ -41,6 +41,25 @@ class AppStyle(QProxyStyle):
         super().drawPrimitive(element, option, painter, widget)
 
 
+_APP_STYLE = None
+
+
+def apply_app_style(app):
+    """Install AppStyle and the stylesheet on the QApplication.
+
+    The style is created in Python, so a Python reference must outlive the
+    app: without one the wrapper is garbage-collected, Qt keeps using the
+    freed style, and Windows crashes with an access violation on first paint.
+    """
+    global _APP_STYLE
+    if _APP_STYLE is None:
+        _APP_STYLE = AppStyle()
+    if app.style() is not _APP_STYLE:
+        app.setStyle(_APP_STYLE)
+    app.setStyleSheet(app_qss())
+    return _APP_STYLE
+
+
 def repolish(widget):
     """Re-apply the stylesheet after a property change."""
     style = widget.style()

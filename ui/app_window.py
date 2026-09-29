@@ -175,9 +175,7 @@ class AppWindow(QMainWindow):
         self.setMinimumSize(t.WINDOW_MIN_WIDTH, t.WINDOW_MIN_HEIGHT)
         self._fit_initial_size()
         app = QApplication.instance()
-        if not isinstance(app.style(), styles.AppStyle):
-            app.setStyle(styles.AppStyle())
-            app.setStyleSheet(styles.app_qss())
+        styles.apply_app_style(app)
 
         self.native_chrome = False
         self._quitting = False
