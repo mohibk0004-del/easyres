@@ -1,209 +1,225 @@
-import sys
-import os
-import winreg
+"""Top-level dialogs, used only when the main window is hidden (tray use).
+While the window is visible, the same calls open in-window sheets."""
 
 from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QGraphicsDropShadowEffect, QMessageBox, QCheckBox
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect, QMessageBox,
+    QCheckBox, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QSettings
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QColor
 
 from theme import tokens as t
-from theme import styles
-from theme.assets import icon_path
-from ui.widgets import ActionButton, PremiumToggle
-import updater
+from theme.motion import duration
+from ui.widgets import ActionButton, make_label
+
+StandardButton = QMessageBox.StandardButton
+
+DEFAULT_LABELS = {
+    StandardButton.Ok: "OK",
+    StandardButton.Yes: "Yes",
+    StandardButton.No: "No",
+    StandardButton.Cancel: "Cancel",
+    StandardButton.Close: "Close",
+}
+# Dismissive buttons first, affirmative last (right-most), macOS style.
+BUTTON_ORDER = (StandardButton.Cancel, StandardButton.No, StandardButton.Close, StandardButton.Ok, StandardButton.Yes)
+AFFIRMATIVE = (StandardButton.Yes, StandardButton.Ok)
+
+
+def button_specs(buttons, icon, labels=None):
+    """[(label, StandardButton, kind)] in display order, plus the cancel value."""
+    labels = {**DEFAULT_LABELS, **(labels or {})}
+    warning = icon in (QMessageBox.Icon.Warning, QMessageBox.Icon.Critical)
+    present = [b for b in BUTTON_ORDER if buttons & b]
+    specs = []
+    for standard in present:
+        affirmative = standard in AFFIRMATIVE and len(present) > 1
+        kind = ("destructive" if warning else "primary") if affirmative else "secondary"
+        specs.append((labels.get(standard, standard.name), standard, kind))
+    cancel = (StandardButton.Cancel if buttons & StandardButton.Cancel else
+              StandardButton.No if buttons & StandardButton.No else StandardButton.Ok)
+    return specs, cancel
+
 
 class BaseStyledDialog(QDialog):
-    def __init__(self, title_text, width, height, parent=None):
+    def __init__(self, title_text, width, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(width, height)
-        
+        self.setWindowTitle(title_text)
+        self._drag_offset = None
+
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        
+        main_layout.setContentsMargins(t.SPACE_LG, t.SPACE_LG, t.SPACE_LG, t.SPACE_LG)
+
         self.container = QWidget()
-        self.container.setObjectName("Container")
-        self.container.setStyleSheet(styles.dialog_container_qss())
-        
+        self.container.setObjectName("DialogCard")
+        self.container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.container.setFixedWidth(width)
+        # Holds initial focus so no control shows a focus ring on open;
+        # Enter still triggers the default button, Tab moves into controls.
+        self.container.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(t.SHADOW_BLUR)
-        shadow.setColor(QColor(t.SHADOW_COLOR))
+        shadow.setColor(QColor(0, 0, 0, 150))
         shadow.setOffset(0, t.SHADOW_OFFSET_Y)
         self.container.setGraphicsEffect(shadow)
-        
+
         self.content_layout = QVBoxLayout(self.container)
-        self.content_layout.setContentsMargins(t.SPACE_2XL, t.SPACE_2XL, t.SPACE_2XL, t.SPACE_2XL)
-        
-        self.title_lbl = QLabel(title_text)
-        self.title_lbl.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_XL}px; font-weight: bold; border: none; background: transparent;")
-        self.title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.content_layout.setContentsMargins(t.SPACE_2XL, t.SPACE_2XL, t.SPACE_2XL, t.SPACE_XL)
+        self.content_layout.setSpacing(t.SPACE_MD)
+
+        self.title_lbl = make_label(title_text, role="dialog-title", wrap=True)
         self.content_layout.addWidget(self.title_lbl)
-        
+
         main_layout.addWidget(self.container)
 
-class SettingsDialog(BaseStyledDialog):
-    def __init__(self, settings: QSettings, parent=None):
-        super().__init__("Settings", 400, 480, parent)
-        self.settings = settings
-        
-        self.content_layout.addSpacing(20)
-        
-        self._add_row("Minimize to System Tray on Close", "minimize_to_tray", self.on_tray_toggle)
-        self._add_row("Always Ask on Close", "ask_close", self.on_ask_close_toggle, default=True)
-        self._add_row("Run on Windows Startup", "run_on_startup", self.on_startup_toggle)
-        self._add_row("Confirm Resolution Changes", "ask_apply_res", self.on_confirm_toggle, default=True)
-        
-        self.content_layout.addSpacing(10)
-        
-        row4 = QHBoxLayout()
-        btn_restore = ActionButton("Restore Hidden Presets")
-        btn_restore.clicked.connect(self.restore_hidden_presets)
-        row4.addWidget(btn_restore)
-        row4.addStretch()
-        self.content_layout.addLayout(row4)
-        
-        self.content_layout.addStretch()
-        
-        row5 = QHBoxLayout()
-        btn_update = ActionButton("Check for Updates")
-        btn_update.clicked.connect(self.check_for_updates)
-        row5.addWidget(btn_update)
-        row5.addStretch()
-        self.content_layout.addLayout(row5)
-        
-        self.content_layout.addSpacing(10)
-        btn = ActionButton("Close")
-        btn.clicked.connect(self.accept)
-        self.content_layout.addWidget(btn)
-        
-    def _add_row(self, label_text, setting_key, slot, default=False):
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.adjustSize()
+        parent = self.parentWidget()
+        if parent and parent.isVisible():
+            center = parent.frameGeometry().center()
+        else:
+            screen = self.screen()
+            center = screen.availableGeometry().center() if screen else self.frameGeometry().center()
+        geometry = self.frameGeometry()
+        geometry.moveCenter(center)
+        self.move(geometry.topLeft())
+        self.container.setFocus(Qt.FocusReason.OtherFocusReason)
+        ms = duration(t.MOTION_FADE)
+        if ms:
+            self.setWindowOpacity(0.0)
+            self._fade = QPropertyAnimation(self, b"windowOpacity", self)
+            self._fade.setDuration(ms)
+            self._fade.setStartValue(0.0)
+            self._fade.setEndValue(1.0)
+            self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self._fade.start()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = event.globalPosition().toPoint() - self.pos()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_offset = None
+
+    def add_button_row(self, buttons):
         row = QHBoxLayout()
-        lbl = QLabel(label_text)
-        lbl.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_MD}px; font-weight: 500; border: none;")
-        tgl = PremiumToggle()
-        
-        tgl.setChecked(self.settings.value(setting_key, default, type=bool), emit=False)
-            
-        tgl.toggled.connect(slot)
-        setattr(self, f"tgl_{setting_key}", tgl)
-        
-        row.addWidget(lbl)
+        row.setSpacing(t.SPACE_SM)
         row.addStretch()
-        row.addWidget(tgl)
+        for button in buttons:
+            row.addWidget(button)
+        self.content_layout.addSpacing(t.SPACE_SM)
         self.content_layout.addLayout(row)
 
-    def on_tray_toggle(self):
-        self.settings.setValue("minimize_to_tray", self.tgl_minimize_to_tray.isChecked())
 
-    def on_ask_close_toggle(self):
-        self.settings.setValue("ask_close", self.tgl_ask_close.isChecked())
+class MessageDialog(BaseStyledDialog):
+    def __init__(self, parent, title, text, icon, buttons, cb_text=None, labels=None):
+        super().__init__(title, 420, parent)
+        specs, self.result_button = button_specs(buttons, icon, labels)
+        self.setAccessibleName(title)
+        self.setAccessibleDescription(text)
 
-    def on_confirm_toggle(self):
-        self.settings.setValue("ask_apply_res", self.tgl_ask_apply_res.isChecked())
+        body = make_label(text, role="muted", wrap=True)
+        body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.content_layout.addWidget(body)
 
-    def on_startup_toggle(self):
-        enabled = self.tgl_run_on_startup.isChecked()
-        self.settings.setValue("run_on_startup", enabled)
-        
-        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        app_name = "EasyRes"
-        exe_path = os.path.abspath(sys.argv[0])
-        
-        try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS)
-            if enabled:
-                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
-            else:
-                try:
-                    winreg.DeleteValue(key, app_name)
-                except FileNotFoundError:
-                    pass
-            winreg.CloseKey(key)
-        except Exception as e:
-            themed_message_box(self, "Error", f"Failed to modify registry for startup: {e}", QMessageBox.Icon.Warning)
-            self.tgl_run_on_startup.setChecked(not enabled, emit=False)
-            
-    def check_for_updates(self):
-        try:
-            release = updater.fetch_latest_release()
-            latest_version = release.get("tag_name", "").lstrip("v")
+        self.checkbox = None
+        if cb_text:
+            self.checkbox = QCheckBox(cb_text)
+            self.content_layout.addWidget(self.checkbox)
 
-            if latest_version and updater.is_newer_version(latest_version, updater.CURRENT_VERSION):
-                reply = themed_message_box(
-                    self, "Update Available",
-                    f"Version {latest_version} is available. You are using {updater.CURRENT_VERSION}.\n\nInstall and restart EasyRes now?",
-                    QMessageBox.Icon.Information,
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    if not updater.can_self_update():
-                        themed_message_box(
-                            self,
-                            "Update Unavailable",
-                            "Automatic updates are available in the packaged EasyRes.exe build.",
-                            QMessageBox.Icon.Information,
-                        )
-                        return
-                    parent = self.parent()
-                    if parent and hasattr(parent, "start_update"):
-                        parent.start_update(release)
-                        self.accept()
-            else:
-                themed_message_box(self, "Up to Date", "You are using the latest version of EasyRes.")
-        except updater.UpdateError as exc:
-            themed_message_box(self, "Update Check Failed", str(exc), QMessageBox.Icon.Warning)
+        widgets = []
+        for label, standard, kind in specs:
+            button = ActionButton(label, primary=kind == "primary", destructive=kind == "destructive")
+            button.clicked.connect(lambda _checked=False, b=standard: self._finish(b))
+            widgets.append(button)
+        if widgets:
+            widgets[-1].setDefault(True)
+        self.add_button_row(widgets)
 
-    def restore_hidden_presets(self):
-        self.settings.setValue("hidden_presets", [])
-        themed_message_box(self, "Success", "Hidden presets restored.")
-        if self.parent():
-            self.parent().load_presets()
+    def _finish(self, button):
+        self.result_button = button
+        self.accept()
 
-class TutorialDialog(BaseStyledDialog):
-    def __init__(self, parent=None):
-        super().__init__("Welcome to EasyRes", 460, 520, parent)
-        
-        self.content_layout.setSpacing(16)
-        
-        content = QLabel(
-            f"<div style='color: {t.TEXT_SECONDARY}; font-size: {t.FONT_MD}px; line-height: 1.6;'>"
-            f"<p style='margin-bottom: 14px; color: {t.TEXT_PRIMARY}; font-size: {t.FONT_LG}px;'>This app makes setting up <span style='color: {t.ACCENT_PRIMARY}; font-weight: bold;'>True Stretch</span> for Valorant easier.</p>"
-            f"<p><b>1.</b> Make Valorant <span style='color: {t.TEXT_PRIMARY}; font-weight: bold;'>Windowed Fullscreen</span>.</p>"
-            f"<p><b>2.</b> Disable the monitor from the <span style='color: {t.ACCENT_PRIMARY}; font-weight: bold;'>Hardware Monitors</span> section.</p>"
-            f"<p><b>3.</b> Choose a predefined preset or add your own custom resolution.</p>"
-            f"<p><b>4.</b> If you see black bars, change scaling mode to <b>Full Screen</b> in AMD/Nvidia settings, and use <b>Fill</b> in Valorant.</p>"
-            f"<p><b>5.</b> Use <span style='color: {t.TEXT_PRIMARY}; font-weight: bold;'>'Reset to Native'</span> to restore defaults and enable your monitor.</p>"
-            "</div>"
-        )
-        content.setStyleSheet("border: none; background: transparent;")
-        content.setWordWrap(True)
-        content.setTextFormat(Qt.TextFormat.RichText)
-        
-        btn = ActionButton("Got it!", primary=True)
-        btn.clicked.connect(self.accept)
-        
-        self.content_layout.addWidget(content)
-        self.content_layout.addStretch()
-        self.content_layout.addWidget(btn)
 
-def themed_message_box(parent, title, text, icon=QMessageBox.Icon.Information, buttons=QMessageBox.StandardButton.Ok, cb_text=None):
-    msg_box = QMessageBox(parent)
-    msg_box.setWindowTitle(title)
-    msg_box.setText(text)
-    msg_box.setIcon(icon)
-    msg_box.setStandardButtons(buttons)
-    msg_box.setStyleSheet(styles.message_box_qss())
-    
-    cb = None
-    if cb_text:
-        cb = QCheckBox(cb_text)
-        msg_box.setCheckBox(cb)
-        
-    reply = msg_box.exec()
-    if cb:
-        return reply, cb.isChecked()
-    return reply
+def _sheet_host(parent):
+    window = parent.window() if parent is not None else None
+    if window is not None and hasattr(window, "sheet_host") and window.isVisible() and not window.isMinimized():
+        return window.sheet_host()
+    return None
+
+
+def themed_message_box(parent, title, text, icon=QMessageBox.Icon.Information,
+                       buttons=StandardButton.Ok, cb_text=None, labels=None):
+    """Drop-in replacement for QMessageBox with EasyRes styling.
+
+    Opens as an in-window sheet when the main window is visible, otherwise
+    as a frameless dialog. Returns the chosen StandardButton, or
+    (button, checked) when cb_text is given.
+    """
+    host = _sheet_host(parent)
+    if host is not None:
+        from ui.components.sheet import Sheet
+        specs, cancel = button_specs(buttons, icon, labels)
+        sheet = Sheet(host, title, text, specs, cancel_value=cancel, checkbox_text=cb_text)
+        result = sheet.exec()
+        if cb_text:
+            return result, bool(sheet.checkbox and sheet.checkbox.isChecked())
+        return result
+
+    dialog = MessageDialog(parent, title, text, icon, buttons, cb_text, labels)
+    dialog.exec()
+    if dialog.checkbox is not None:
+        return dialog.result_button, dialog.checkbox.isChecked()
+    return dialog.result_button
+
+
+class RevertDialog(BaseStyledDialog):
+    """Keep-or-revert countdown after a resolution change, for when the main
+    window is hidden. Reverts automatically if the screen went black."""
+
+    def __init__(self, mode_text, seconds=t.REVERT_SECONDS, parent=None):
+        super().__init__("Keep this resolution?", 400, parent)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self._remaining = seconds
+        self.keep = False
+
+        self.body = make_label("", role="muted", wrap=True)
+        self._mode_text = mode_text
+        self.content_layout.addWidget(self.body)
+
+        revert = ActionButton("Revert")
+        revert.clicked.connect(self.reject)
+        keep = ActionButton("Keep", primary=True)
+        keep.clicked.connect(self._keep)
+        keep.setDefault(True)
+        self.add_button_row([revert, keep])
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self._tick)
+        self._update_text()
+        self._timer.start()
+
+    def _update_text(self):
+        self.body.setText(f"Switched to {self._mode_text}. Reverting in {self._remaining} s unless you keep it.")
+
+    def _tick(self):
+        self._remaining -= 1
+        if self._remaining <= 0:
+            self._timer.stop()
+            self.reject()
+            return
+        self._update_text()
+
+    def _keep(self):
+        self.keep = True
+        self._timer.stop()
+        self.accept()

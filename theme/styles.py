@@ -1,430 +1,420 @@
-"""QSS style builders for EasyRes."""
+"""QSS for EasyRes.
+
+One application-wide stylesheet, driven by widget properties, replaces
+per-widget inline styles:
+
+    label.setProperty("role", "muted")
+    button.setProperty("variant", "primary")
+
+Contrast rules (palette is fixed, so usage carries accessibility):
+- White text sits on ACCENT_HOVER, never on ACCENT_PRIMARY (4.2:1).
+- Blurple text only at >= 20px bold (large text, 3:1 minimum).
+- Red text uses DESTRUCTIVE_HOVER (5:1); red fills are tints with a border.
+"""
+
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtWidgets import QProxyStyle, QStyle
 
 from theme import tokens as t
 
 
-def container_qss(radius: int = t.RADIUS_XL, bordered: bool = True) -> str:
-    border = f"border: 1px solid {t.BORDER_SUBTLE};" if bordered else "border: none;"
-    return f"""
-        QWidget#Container {{
-            background-color: {t.BG_BASE};
-            border-radius: {radius}px;
-            {border}
-        }}
+class AppStyle(QProxyStyle):
+    """Fusion base (consistent across Windows versions) with a thin chevron
+    for combo-box arrows, which QSS cannot draw without image files."""
+
+    def __init__(self):
+        super().__init__("Fusion")
+
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown:
+            rect = option.rect
+            cx, cy = rect.center().x() + 0.5, rect.center().y() + 0.5
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            enabled = bool(option.state & QStyle.StateFlag.State_Enabled)
+            painter.setPen(QPen(QColor(t.TEXT_SECONDARY if enabled else t.TEXT_MUTED), 1.6,
+                                Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawPolyline([QPointF(cx - 4, cy - 2), QPointF(cx, cy + 2), QPointF(cx + 4, cy - 2)])
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
+
+_APP_STYLE = None
+
+
+def apply_app_style(app):
+    """Install AppStyle and the stylesheet on the QApplication.
+
+    The style is created in Python, so a Python reference must outlive the
+    app: without one the wrapper is garbage-collected, Qt keeps using the
+    freed style, and Windows crashes with an access violation on first paint.
     """
+    global _APP_STYLE
+    if _APP_STYLE is None:
+        _APP_STYLE = AppStyle()
+    if app.style() is not _APP_STYLE:
+        app.setStyle(_APP_STYLE)
+    app.setStyleSheet(app_qss())
+    return _APP_STYLE
 
 
-def dialog_container_qss() -> str:
+def repolish(widget):
+    """Re-apply the stylesheet after a property change."""
+    style = widget.style()
+    style.unpolish(widget)
+    style.polish(widget)
+    widget.update()
+
+
+def set_props(widget, **props):
+    for key, value in props.items():
+        widget.setProperty(key, value)
+    repolish(widget)
+
+
+def _button(selector: str, bg: str, border: str, color: str, hover_bg: str, hover_border: str,
+            pressed_bg: str, radius: int = t.RADIUS_MD, padding_v: int = 9, padding_h: int = 16) -> str:
+    # Border width stays constant across states (focus changes colour only)
+    # so content never shifts.
     return f"""
-        QWidget#Container {{
-            background-color: {t.BG_BASE};
-            border-radius: {t.RADIUS_XL}px;
-            border: 1px solid {t.BORDER_SUBTLE};
-        }}
-    """
-
-
-def title_bar_qss() -> str:
-    return f"""
-        background-color: {t.BG_ELEVATED};
-        border-top-left-radius: {t.RADIUS_XL}px;
-        border-top-right-radius: {t.RADIUS_XL}px;
-        border-bottom: 1px solid {t.BORDER_SUBTLE};
-    """
-
-
-def section_card_qss(warning: bool = False) -> str:
-    border = t.ACCENT_MUTED_BORDER if warning else t.BORDER_SUBTLE
-    bg = t.BG_CARD if warning else t.BG_ELEVATED
-    return f"""
-        background-color: {bg};
-        border-radius: {t.RADIUS_LG}px;
-        border: 1px solid {border};
-    """
-
-
-def resolution_hero_qss() -> str:
-    return f"""
-        background-color: {t.BG_ELEVATED};
-        border-radius: {t.RADIUS_XL}px;
-        border: 1px solid {t.BORDER_SUBTLE};
-    """
-
-
-def console_panel_qss() -> str:
-    return f"""
-        background-color: {t.BG_ELEVATED};
-        border-radius: {t.RADIUS_LG}px;
-        border: 1px solid {t.BORDER_SUBTLE};
-    """
-
-
-def stat_pill_qss() -> str:
-    return f"""
-        background-color: {t.BG_CARD};
-        border-radius: {t.RADIUS_MD}px;
-        border: 1px solid {t.BORDER_DEFAULT};
-    """
-
-
-def stat_value_qss(accent: bool = False, warning: bool = False) -> str:
-    color = t.DESTRUCTIVE if warning else (t.ACCENT_PRIMARY if accent else t.TEXT_PRIMARY)
-    return f"""
-        color: {color};
-        font-size: {t.FONT_XL}px;
-        font-weight: 700;
-        border: none;
-        background: transparent;
-    """
-
-
-def section_label_qss() -> str:
-    return f"""
-        color: {t.TEXT_MUTED};
-        font-size: {t.FONT_SM}px;
-        font-weight: 600;
-        letter-spacing: 1.5px;
-        border: none;
-        background: transparent;
-    """
-
-
-def body_label_qss() -> str:
-    return f"""
-        color: {t.TEXT_PRIMARY};
-        font-size: {t.FONT_MD}px;
-        font-weight: 500;
-        border: none;
-        background: transparent;
-    """
-
-
-def muted_label_qss(size: int = t.FONT_MD) -> str:
-    return f"""
-        color: {t.TEXT_MUTED};
-        font-size: {size}px;
-        border: none;
-        background: transparent;
-    """
-
-
-def dialog_title_qss() -> str:
-    return f"""
-        color: {t.TEXT_PRIMARY};
-        font-size: {t.FONT_XL}px;
-        font-weight: 700;
-        border: none;
-        background: transparent;
-    """
-
-
-def title_label_qss() -> str:
-    return f"""
-        color: {t.TEXT_MUTED};
-        font-weight: 600;
-        font-size: {t.FONT_MD}px;
-        border: none;
-        background: transparent;
-    """
-
-
-def button_qss(primary: bool = False, destructive: bool = False) -> str:
-    if destructive:
-        bg = t.DESTRUCTIVE
-        hover_bg = t.DESTRUCTIVE_HOVER
-        border = t.DESTRUCTIVE
-        pressed_bg = t.DESTRUCTIVE_HOVER
-    elif primary:
-        bg = t.ACCENT_PRIMARY
-        hover_bg = t.ACCENT_HOVER
-        border = t.ACCENT_PRIMARY
-        pressed_bg = t.ACCENT_HOVER
-    else:
-        bg = t.BG_CARD_HOVER
-        hover_bg = "#2a2a2b"
-        border = t.BORDER_DEFAULT
-        pressed_bg = t.ACCENT_PRIMARY
-
-    return f"""
-        QPushButton {{
+        {selector} {{
             background-color: {bg};
-            border: 1px solid {border};
-            border-radius: {t.RADIUS_LG}px;
-            color: {t.TEXT_PRIMARY};
+            border: 2px solid {border};
+            border-radius: {radius}px;
+            color: {color};
             font-size: {t.FONT_MD}px;
             font-weight: 600;
-            min-height: 22px;
-            padding: 10px 14px;
+            padding: {padding_v}px {padding_h}px;
+            min-height: 18px;
         }}
-        QPushButton:hover {{
+        {selector}:hover {{
             background-color: {hover_bg};
-            border: 1px solid {t.BORDER_HOVER if not primary and not destructive else border};
+            border-color: {hover_border};
         }}
-        QPushButton:pressed {{
+        {selector}:pressed {{
             background-color: {pressed_bg};
-            border: 1px solid {pressed_bg};
         }}
-        QPushButton:focus {{
-            border: 2px solid {t.ACCENT_PRIMARY};
+        {selector}:focus {{
+            border-color: {t.ACCENT_PRIMARY};
         }}
-        QPushButton:disabled {{
+        {selector}:disabled {{
             background-color: {t.BG_CARD};
-            border: 1px solid {t.BORDER_SUBTLE};
+            border-color: {t.BORDER_SUBTLE};
             color: {t.TEXT_MUTED};
         }}
     """
 
 
-def icon_button_qss() -> str:
+def app_qss() -> str:
     return f"""
-        QPushButton {{
-            color: {t.TEXT_MUTED};
+        QWidget {{
+            color: {t.TEXT_PRIMARY};
+            font-size: {t.FONT_MD}px;
+        }}
+        QToolTip {{
+            background-color: {t.BG_CARD_HOVER};
+            color: {t.TEXT_PRIMARY};
+            border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: {t.RADIUS_SM}px;
+            padding: 6px 8px;
+        }}
+
+        /* ---------- Surfaces ---------- */
+        QWidget#Root {{
+            background-color: {t.BG_BASE};
+        }}
+        QWidget#Sidebar {{
+            background-color: {t.BG_ELEVATED};
+            border-right: 1px solid {t.BORDER_SUBTLE};
+        }}
+        QWidget#Header {{
+            background-color: {t.BG_BASE};
+            border-bottom: 1px solid {t.BORDER_SUBTLE};
+        }}
+        QWidget#ActionBar {{
+            background-color: {t.BG_ELEVATED};
+            border-top: 1px solid {t.BORDER_SUBTLE};
+        }}
+        QWidget#SheetCard, QWidget#DialogCard {{
+            background-color: {t.BG_ELEVATED};
+            border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: {t.RADIUS_XL}px;
+        }}
+        QFrame#Hairline {{
+            background-color: {t.BORDER_SUBTLE};
+            border: none;
+            margin-left: {t.SPACE_LG}px;
+        }}
+        QListWidget#Palette {{
+            background-color: {t.BG_CARD};
+            border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: {t.RADIUS_MD}px;
+            padding: 4px;
+            outline: 0;
+        }}
+        QListWidget#Palette::item {{
+            padding: 7px 10px;
+            border-radius: {t.RADIUS_SM}px;
+            color: {t.TEXT_PRIMARY};
+        }}
+        QListWidget#Palette::item:selected {{
+            background-color: {t.ACCENT_MUTED_BG};
+            color: {t.TEXT_PRIMARY};
+        }}
+        QWidget[panel="true"] {{
+            background-color: {t.BG_ELEVATED};
+            border: 1px solid {t.BORDER_SUBTLE};
+            border-radius: {t.RADIUS_LG}px;
+        }}
+        QWidget[panel="inset"] {{
+            background-color: {t.BG_CARD};
+            border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: {t.RADIUS_MD}px;
+        }}
+        QWidget[panel="inset"][tone="warning"] {{
+            border-color: {t.DESTRUCTIVE};
+            background-color: {t.DESTRUCTIVE_MUTED_BG};
+        }}
+        QWidget[transparent="true"] {{
             background: transparent;
             border: none;
-            border-radius: {t.RADIUS_SM}px;
-            padding: 4px;
         }}
-        QPushButton:hover {{
-            color: {t.ACCENT_HOVER};
-            background-color: {t.ACCENT_MUTED_BG};
+
+        /* ---------- Text ---------- */
+        QLabel {{
+            background: transparent;
+            border: none;
         }}
-        QPushButton:pressed {{
+        QLabel[role="app-title"] {{
+            font-size: {t.FONT_LG}px;
+            font-weight: 700;
+        }}
+        QLabel[role="page-title"] {{
+            font-size: 22px;
+            font-weight: 700;
+        }}
+        QLabel[role="dialog-title"] {{
+            font-size: {t.FONT_XL}px;
+            font-weight: 700;
+        }}
+        QLabel[role="section"] {{
+            color: {t.TEXT_SECONDARY};
+            font-size: {t.FONT_SM}px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }}
+        QLabel[role="body"] {{
+            font-weight: 500;
+        }}
+        QLabel[role="strong"] {{
+            font-weight: 600;
+        }}
+        QLabel[role="muted"] {{
+            color: {t.TEXT_SECONDARY};
+        }}
+        QLabel[role="caption"] {{
+            color: {t.TEXT_SECONDARY};
+            font-size: {t.FONT_SM}px;
+        }}
+        QLabel[role="caption"][tone="warning"] {{
+            color: {t.DESTRUCTIVE_HOVER};
+        }}
+        QLabel[role="value"] {{
+            font-size: 20px;
+            font-weight: 700;
+        }}
+        QLabel[role="value"][tone="accent"] {{
             color: {t.ACCENT_PRIMARY};
         }}
-        QPushButton:focus {{
-            border: 1px solid {t.ACCENT_PRIMARY};
+        QLabel[role="value"][tone="warning"] {{
+            color: {t.DESTRUCTIVE_HOVER};
         }}
-    """
-
-
-def update_badge_qss() -> str:
-    return f"""
-        QPushButton {{
-            background-color: {t.DESTRUCTIVE};
+        QLabel[role="badge"] {{
             color: {t.TEXT_PRIMARY};
-            border-radius: 10px;
-            font-weight: 600;
-            font-size: {t.FONT_SM}px;
-            padding-left: 8px;
-            padding-right: 8px;
-            border: none;
-        }}
-        QPushButton:hover {{
-            background-color: {t.DESTRUCTIVE_HOVER};
-        }}
-    """
-
-
-def preset_card_qss(is_custom: bool = False, is_active: bool = False) -> str:
-    base = t.BG_CARD_CUSTOM if is_custom else t.BG_CARD
-    hover = t.BG_CARD_CUSTOM_HOVER if is_custom else t.BG_CARD_HOVER
-    if is_active:
-        border = f"2px solid {t.ACCENT_PRIMARY}"
-        bg = t.BG_CARD_HOVER
-    else:
-        border = f"1px solid {t.BORDER_DEFAULT}"
-        bg = base
-    return f"""
-        QPushButton {{
-            background-color: {bg};
-            border: {border};
-            border-radius: {t.RADIUS_LG}px;
-        }}
-        QPushButton:hover {{
-            background-color: {hover};
-            border: 1px solid {t.BORDER_HOVER};
-        }}
-        QPushButton:pressed {{
-            background-color: {t.ACCENT_PRIMARY};
-            border: 1px solid {t.ACCENT_PRIMARY};
-        }}
-        QPushButton:focus {{
-            border: 2px solid {t.ACCENT_PRIMARY};
-        }}
-    """
-
-
-def preset_card_label_qss(primary: bool = True) -> str:
-    if primary:
-        return f"color: {t.TEXT_PRIMARY}; font-size: {t.FONT_MD}px; font-weight: 600; border: none; background: transparent;"
-    if primary is False:
-        return f"color: {t.TEXT_MUTED}; font-size: {t.FONT_SM}px; font-weight: 500; border: none; background: transparent;"
-    return f"color: rgba(134, 134, 139, 0.7); font-size: {t.FONT_XS}px; font-weight: 500; border: none; background: transparent;"
-
-
-def mode_row_qss(is_active: bool = False, is_custom: bool = False) -> str:
-    bg = t.BG_CARD_CUSTOM if is_custom else t.BG_CARD
-    border = t.ACCENT_MUTED_BORDER if is_active else t.BORDER_DEFAULT
-    return f"""
-        QPushButton {{
-            background-color: {bg};
-            border: 1px solid {border};
-            border-radius: {t.RADIUS_MD}px;
-            text-align: left;
-        }}
-        QPushButton:hover {{
-            background-color: {t.BG_CARD_HOVER};
-            border: 1px solid {t.BORDER_HOVER};
-        }}
-        QPushButton:pressed {{
-            background-color: {t.ACCENT_MUTED_BG};
-            border: 1px solid {t.ACCENT_PRIMARY};
-        }}
-        QPushButton:focus {{
-            border: 2px solid {t.ACCENT_PRIMARY};
-        }}
-        QLabel {{
-            border: none;
-            background: transparent;
-        }}
-    """
-
-
-def input_qss(error: bool = False) -> str:
-    border_color = t.DESTRUCTIVE if error else t.BORDER_DEFAULT
-    focus_border = t.DESTRUCTIVE if error else t.ACCENT_PRIMARY
-    return f"""
-        QLineEdit {{
+            font-size: {t.FONT_XS}px;
+            font-weight: 700;
             background-color: {t.BG_CARD};
-            border: 1px solid {border_color};
+            border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: 9px;
+            padding: 3px 9px;
+        }}
+        QLabel[role="badge"][tone="accent"] {{
+            background-color: {t.ACCENT_MUTED_BG};
+            border-color: {t.ACCENT_MUTED_BORDER};
+        }}
+        QLabel[role="badge"][tone="warning"] {{
+            background-color: {t.DESTRUCTIVE_MUTED_BG};
+            border-color: {t.DESTRUCTIVE};
+        }}
+
+        /* ---------- Buttons ---------- */
+        {_button('QPushButton', t.BG_CARD_HOVER, t.BORDER_DEFAULT, t.TEXT_PRIMARY,
+                 t.BORDER_DEFAULT, t.BORDER_HOVER, t.BG_CARD)}
+        {_button('QPushButton[variant="primary"]', t.ACCENT_HOVER, t.ACCENT_HOVER, t.TEXT_PRIMARY,
+                 t.ACCENT_HOVER, t.ACCENT_PRIMARY, t.ACCENT_HOVER)}
+        {_button('QPushButton[variant="destructive"]', t.DESTRUCTIVE_MUTED_BG, t.DESTRUCTIVE, t.TEXT_PRIMARY,
+                 t.DESTRUCTIVE_MUTED_BG, t.DESTRUCTIVE_HOVER, t.BG_CARD)}
+        QPushButton[variant="primary"]:focus {{
+            border-color: {t.TEXT_PRIMARY};
+        }}
+        QPushButton[variant="pill"] {{
+            background-color: {t.ACCENT_HOVER};
+            border: 2px solid {t.ACCENT_HOVER};
+            border-radius: 12px;
+            color: {t.TEXT_PRIMARY};
+            font-size: {t.FONT_SM}px;
+            font-weight: 700;
+            padding: 2px 12px;
+            min-height: 16px;
+            max-height: 16px;
+        }}
+        QPushButton[variant="pill"]:hover {{
+            border-color: {t.ACCENT_PRIMARY};
+        }}
+        QPushButton[variant="pill"]:focus {{
+            border-color: {t.TEXT_PRIMARY};
+        }}
+        QPushButton[variant="pill"]:disabled {{
+            background-color: {t.BG_CARD_HOVER};
+            border-color: {t.BORDER_DEFAULT};
+            color: {t.TEXT_SECONDARY};
+        }}
+        QPushButton[variant="icon"] {{
+            background: transparent;
+            border: 2px solid transparent;
+            border-radius: {t.RADIUS_SM}px;
+            padding: 2px;
+            min-height: 0px;
+        }}
+        QPushButton[variant="icon"]:hover, QPushButton[variant="icon"][hover="true"] {{
+            background-color: {t.BG_CARD_HOVER};
+        }}
+        QPushButton[variant="icon"]:pressed {{
+            background-color: {t.BORDER_DEFAULT};
+        }}
+        QPushButton[variant="icon"]:focus {{
+            border-color: {t.ACCENT_PRIMARY};
+        }}
+        QPushButton[variant="icon"][danger="true"]:hover {{
+            background-color: {t.DESTRUCTIVE};
+        }}
+
+        /* ---------- Inputs ---------- */
+        QLineEdit, QComboBox {{
+            background-color: {t.BG_CARD};
+            border: 2px solid {t.BORDER_DEFAULT};
             border-radius: {t.RADIUS_MD}px;
             color: {t.TEXT_PRIMARY};
-            min-height: 22px;
-            padding: 8px 10px;
-            font-size: {t.FONT_MD}px;
+            padding: 6px 10px;
+            min-height: 18px;
+            selection-background-color: {t.ACCENT_HOVER};
         }}
-        QLineEdit:focus {{
-            border: 2px solid {focus_border};
+        QLineEdit:hover, QComboBox:hover {{
+            border-color: {t.BORDER_HOVER};
         }}
-    """
-
-
-def combo_qss(elevated: bool = False) -> str:
-    bg = t.BG_ELEVATED if elevated else t.BG_CARD
-    border = t.BORDER_SUBTLE if elevated else t.BORDER_DEFAULT
-    return f"""
-        QComboBox {{
-            background-color: {bg};
-            border: 1px solid {border};
-            border-radius: {t.RADIUS_SM if elevated else t.RADIUS_MD}px;
-            color: {t.TEXT_PRIMARY};
-            min-height: 22px;
-            padding: 7px 10px;
-            font-size: {t.FONT_MD}px;
+        QLineEdit:focus, QComboBox:focus, QComboBox:on {{
+            border-color: {t.ACCENT_PRIMARY};
         }}
-        QComboBox:focus {{
-            border: 2px solid {t.ACCENT_PRIMARY};
+        QLineEdit[error="true"] {{
+            border-color: {t.DESTRUCTIVE};
+        }}
+        QLineEdit:disabled, QComboBox:disabled {{
+            color: {t.TEXT_MUTED};
+            background-color: {t.BG_ELEVATED};
+            border-color: {t.BORDER_SUBTLE};
         }}
         QComboBox::drop-down {{
             border: none;
+            width: 22px;
         }}
         QComboBox QAbstractItemView {{
             background-color: {t.BG_CARD};
             color: {t.TEXT_PRIMARY};
             border: 1px solid {t.BORDER_DEFAULT};
+            border-radius: {t.RADIUS_SM}px;
+            padding: 4px;
+            outline: 0;
             selection-background-color: {t.ACCENT_MUTED_BG};
             selection-color: {t.TEXT_PRIMARY};
         }}
-    """
+        QCheckBox {{
+            color: {t.TEXT_PRIMARY};
+            spacing: 8px;
+            background: transparent;
+        }}
+        QCheckBox::indicator {{
+            width: 16px;
+            height: 16px;
+            border: 2px solid {t.BORDER_HOVER};
+            border-radius: 5px;
+            background: {t.BG_CARD};
+        }}
+        QCheckBox::indicator:checked {{
+            background: {t.ACCENT_HOVER};
+            border-color: {t.ACCENT_PRIMARY};
+        }}
+        QCheckBox:focus {{
+            color: {t.TEXT_PRIMARY};
+        }}
+        QCheckBox::indicator:focus {{
+            border-color: {t.ACCENT_PRIMARY};
+        }}
 
-
-def scrollbar_qss() -> str:
-    return f"""
+        /* ---------- Scrolling ---------- */
         QScrollArea {{
             border: none;
             background: transparent;
         }}
+        QScrollArea > QWidget > QWidget {{
+            background: transparent;
+        }}
         QScrollBar:vertical {{
             background: transparent;
-            width: 8px;
-            margin: 0;
+            width: 10px;
+            margin: 2px;
         }}
         QScrollBar::handle:vertical {{
             background: {t.BORDER_DEFAULT};
-            border-radius: 4px;
-            min-height: 24px;
+            border-radius: 3px;
+            min-height: 28px;
         }}
         QScrollBar::handle:vertical:hover {{
-            background: {t.ACCENT_PRIMARY};
+            background: {t.BORDER_HOVER};
         }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-            height: 0;
+        QScrollBar::add-line, QScrollBar::sub-line {{
+            height: 0px;
+            width: 0px;
+        }}
+        QScrollBar::add-page, QScrollBar::sub-page {{
+            background: transparent;
         }}
         QScrollBar:horizontal {{
-            background: transparent;
-            height: 8px;
+            height: 0px;
         }}
-        QScrollBar::handle:horizontal {{
-            background: {t.BORDER_DEFAULT};
-            border-radius: 4px;
-            min-width: 24px;
-        }}
-        QScrollBar::handle:horizontal:hover {{
-            background: {t.ACCENT_PRIMARY};
-        }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-            width: 0;
-        }}
-    """
 
-
-def menu_qss() -> str:
-    return f"""
+        /* ---------- Menus ---------- */
         QMenu {{
             background-color: {t.BG_CARD_HOVER};
             color: {t.TEXT_PRIMARY};
             border: 1px solid {t.BORDER_DEFAULT};
-            border-radius: {t.RADIUS_SM}px;
+            border-radius: {t.RADIUS_MD}px;
             padding: 4px;
         }}
         QMenu::item {{
-            padding: 8px 22px;
-            border-radius: 4px;
+            padding: 7px 20px;
+            border-radius: {t.RADIUS_SM}px;
         }}
         QMenu::item:selected {{
             background-color: {t.ACCENT_MUTED_BG};
-            color: {t.ACCENT_HOVER};
         }}
-    """
-
-
-def message_box_qss() -> str:
-    return f"""
-        QMessageBox {{
-            background-color: {t.BG_BASE};
-            color: {t.TEXT_PRIMARY};
+        QMenu::item:disabled {{
+            color: {t.TEXT_MUTED};
         }}
-        QMessageBox QLabel {{
-            color: {t.TEXT_PRIMARY};
+        QMenu::separator {{
+            height: 1px;
+            background: {t.BORDER_DEFAULT};
+            margin: 4px 6px;
         }}
-        QPushButton {{
-            background-color: {t.BG_CARD_HOVER};
-            color: {t.TEXT_PRIMARY};
-            border: 1px solid {t.BORDER_DEFAULT};
-            min-height: 22px;
-            padding: 8px 18px;
-            border-radius: {t.RADIUS_SM}px;
-            min-width: 70px;
-        }}
-        QPushButton:hover {{
-            background-color: #2a2a2b;
-            border: 1px solid {t.ACCENT_PRIMARY};
-        }}
-        QPushButton:focus {{
-            border: 2px solid {t.ACCENT_PRIMARY};
-        }}
-        QCheckBox {{
-            color: {t.TEXT_PRIMARY};
-        }}
-    """
-
-
-def experimental_badge_qss() -> str:
-    return f"""
-        color: {t.DESTRUCTIVE};
-        font-size: {t.FONT_XS}px;
-        font-weight: 600;
-        background-color: {t.DESTRUCTIVE_MUTED_BG};
-        border-radius: 4px;
-        padding: 2px 6px;
     """

@@ -1,0 +1,64 @@
+name: Windows smoke test
+
+# Builds EasyRes.exe exactly like the release and launches it on Windows,
+# failing if it doesn't start. Prints the app's crash log either way.
+on:
+  push:
+    branches:
+      - "claude/**"
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pillow
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests -v
+
+      - name: Build EasyRes.exe
+        shell: bash
+        run: |
+          extra=""
+          if [ -d assets ]; then extra='--add-data assets;assets'; fi
+          pyinstaller --clean --noupx --noconsole --onefile --uac-admin \
+            --icon icon.png --add-data "icon.png;." $extra main.py --name EasyRes
+
+      - name: Launch EasyRes.exe
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:LOCALAPPDATA "EasyRes\crash.log"
+          $variants = [ordered]@{
+            "default"          = @{}
+            "qt-frame"         = @{ EASYRES_QT_FRAME = "1" }
+          }
+          $allOk = $true
+          foreach ($name in $variants.Keys) {
+            foreach ($k in @("EASYRES_NO_FADE", "EASYRES_QT_FRAME", "EASYRES_NO_NATIVE_EVENT")) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
+            foreach ($pair in $variants[$name].GetEnumerator()) { Set-Item "Env:$($pair.Key)" $pair.Value }
+            $env:EASYRES_SMOKE_SECONDS = "8"
+            $env:EASYRES_TRACE = "1"
+            $p = Start-Process -FilePath dist\EasyRes.exe -PassThru
+            $finished = $p.WaitForExit(90000)
+            if (-not $finished) { Stop-Process -Id $p.Id -Force; $result = "timed out" } else { $result = "exit code $($p.ExitCode)" }
+            $ok = $finished -and $p.ExitCode -eq 0 -and (Test-Path $log) -and (Select-String -Path $log -Pattern "SMOKE OK" -Quiet)
+            "===== $name : $result : ok=$ok ====="
+            if (Test-Path $log) { Get-Content $log } else { "(no crash.log)" }
+            if (-not $ok) { $allOk = $false }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $allOk) { exit 1 }

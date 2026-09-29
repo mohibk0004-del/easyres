@@ -64,6 +64,19 @@ jobs:
           pyinstaller --clean --noupx --noconsole --onefile --uac-admin \
             --icon icon.png --add-data "icon.png;." $extra main.py --name EasyRes
 
+      - name: Smoke test EasyRes.exe
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:LOCALAPPDATA "EasyRes\crash.log"
+          $env:EASYRES_SMOKE_SECONDS = "8"
+          $p = Start-Process -FilePath dist\EasyRes.exe -PassThru
+          $finished = $p.WaitForExit(90000)
+          if (-not $finished) { Stop-Process -Id $p.Id -Force }
+          if (Test-Path $log) { Get-Content $log }
+          if (-not $finished -or $p.ExitCode -ne 0 -or -not (Select-String -Path $log -Pattern "SMOKE OK" -Quiet)) {
+            throw "EasyRes.exe failed to start; not publishing."
+          }
+
       - name: Publish release
         shell: bash
         env:

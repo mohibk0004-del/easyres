@@ -1,35 +1,35 @@
 """Font loading for EasyRes."""
 
 import os
-import sys
 
 from PyQt6.QtGui import QFont, QFontDatabase
 
-FONT_FILES = {
-    "Regular": "Inter-Regular.ttf",
-    "Medium": "Inter-Medium.ttf",
-    "SemiBold": "Inter-SemiBold.ttf",
-    "Bold": "Inter-Bold.ttf",
-}
+from theme import tokens as t
+from theme.assets import asset_base_path
 
+FONT_FILES = (
+    "Inter-Regular.ttf",
+    "Inter-Medium.ttf",
+    "Inter-SemiBold.ttf",
+    "Inter-Bold.ttf",
+)
 
-def asset_base_path() -> str:
-    try:
-        return sys._MEIPASS
-    except Exception:
-        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Tried in order when Inter is not bundled.
+FALLBACK_FAMILIES = ("Segoe UI Variable Text", "Segoe UI", "Inter")
 
 
 def fonts_dir() -> str:
     return os.path.join(asset_base_path(), "assets", "fonts")
 
 
-def load_inter_font() -> QFont:
-    """Load Inter from bundled assets; fall back to Segoe UI on Windows."""
-    font_dir = fonts_dir()
+def load_app_font() -> QFont:
+    """Load bundled Inter, falling back to the Windows UI font.
+
+    Sizes are set in pixels so they match the px values used in QSS.
+    """
     family = None
-    for filename in FONT_FILES.values():
-        path = os.path.join(font_dir, filename)
+    for filename in FONT_FILES:
+        path = os.path.join(fonts_dir(), filename)
         if os.path.isfile(path):
             font_id = QFontDatabase.addApplicationFont(path)
             if font_id >= 0:
@@ -37,9 +37,11 @@ def load_inter_font() -> QFont:
                 if families:
                     family = families[0]
 
-    if family:
-        font = QFont(family, 13)
-    else:
-        font = QFont("Segoe UI", 13)
+    if not family:
+        available = set(QFontDatabase.families())
+        family = next((name for name in FALLBACK_FAMILIES if name in available), None)
+
+    font = QFont(family) if family else QFont()
+    font.setPixelSize(t.FONT_MD)
     font.setHintingPreference(QFont.HintingPreference.PreferDefaultHinting)
     return font

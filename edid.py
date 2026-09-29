@@ -1,12 +1,53 @@
 import ctypes
 from ctypes import wintypes
 import uuid
-import winreg
+
+try:
+    import winreg
+except ImportError:  # Non-Windows (tests)
+    winreg = None
+
+MONITOR_CLASS_GUID = "{4d36e96e-e325-11ce-bfc1-08002be10318}"
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+DIGCF_PRESENT = 2
+DICS_FLAG_GLOBAL = 1
+DIREG_DEV = 1
+KEY_READ = 0x20019
+KEY_WRITE = 0x20006
+
+DESCRIPTOR_OFFSETS = (54, 72, 90, 108)
+# Display descriptor tags, in the order we are willing to replace them.
+# 0x10 = dummy, 0xFF = serial string, 0xFE = unspecified text.
+# 0xFC (monitor name) and 0xFD (range limits) are never replaced.
+REPLACEABLE_TAGS = (0x10, 0xFF, 0xFE)
+PROTECTED_TAGS = (0xFC, 0xFD)
+
+MIN_DIMENSION = 320
+MAX_DIMENSION = 4095  # 12-bit DTD active fields
+MIN_REFRESH = 24
+MAX_REFRESH = 500
+MAX_PIXEL_CLOCK_10KHZ = 0xFFFF  # 16-bit DTD pixel clock field
+
+
+class EdidError(ValueError):
+    pass
+
+
+def validate_mode(width, height, hz):
+    """Raise EdidError if the mode cannot be encoded as a CVT-RB DTD."""
+    if not all(isinstance(value, int) for value in (width, height, hz)):
+        raise EdidError("Width, height and refresh rate must be whole numbers.")
+    if not (MIN_DIMENSION <= width <= MAX_DIMENSION and MIN_DIMENSION <= height <= MAX_DIMENSION):
+        raise EdidError(f"Width and height must be between {MIN_DIMENSION} and {MAX_DIMENSION}.")
+    if not (MIN_REFRESH <= hz <= MAX_REFRESH):
+        raise EdidError(f"Refresh rate must be between {MIN_REFRESH} and {MAX_REFRESH} Hz.")
+
 
 def generate_cvt_rb(width, height, hz):
     """
     Generates an 18-byte EDID Detailed Timing Descriptor for VESA CVT-RB v1.
     """
+    validate_mode(width, height, hz)
     h_active = width
     v_active = height
     v_rate = hz
@@ -22,13 +63,19 @@ def generate_cvt_rb(width, height, hz):
     min_v_blank_time = 460.0 # microseconds
 
     h_period = ((1000000.0 / v_rate) - min_v_blank_time) / v_active
+    if h_period <= 0:
+        raise EdidError("Refresh rate is too high for this resolution.")
     v_blank = int(min_v_blank_time / h_period) + 1
     v_blank = max(v_blank, v_front + v_sync + min_v_bp)
+    if v_blank > 0xFFF:
+        raise EdidError("Vertical blanking does not fit in an EDID timing.")
     v_total = v_active + v_blank
 
     pixel_clock_hz = (h_total * v_total * v_rate)
     # Convert to 10kHz units, round nearest
     pc_10k = int(round(pixel_clock_hz / 10000.0))
+    if pc_10k > MAX_PIXEL_CLOCK_10KHZ:
+        raise EdidError("Pixel clock exceeds the EDID limit (655.35 MHz). Lower the resolution or refresh rate.")
 
     dtd = bytearray(18)
     dtd[0] = pc_10k & 0xFF
@@ -65,159 +112,185 @@ def fix_checksum(edid_bytes):
     edid[127] = (256 - checksum) % 256
     return bytes(edid)
 
-def get_active_monitor_device_ids():
-    """
-    Returns a list of DeviceIDs for currently active monitors.
-    """
+
+class SP_DEVINFO_DATA(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("ClassGuid", ctypes.c_byte * 16),
+        ("DevInst", wintypes.DWORD),
+        ("Reserved", ctypes.c_void_p)
+    ]
+
+
+def _setupapi():
     setupapi = ctypes.windll.setupapi
-    class SP_DEVINFO_DATA(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD),
-            ("ClassGuid", ctypes.c_byte * 16),
-            ("DevInst", wintypes.DWORD),
-            ("Reserved", ctypes.c_void_p)
-        ]
     setupapi.SetupDiGetClassDevsA.restype = ctypes.c_void_p
     setupapi.SetupDiGetClassDevsA.argtypes = [ctypes.c_char_p, ctypes.c_char_p, wintypes.HWND, wintypes.DWORD]
     setupapi.SetupDiEnumDeviceInfo.restype = wintypes.BOOL
     setupapi.SetupDiEnumDeviceInfo.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(SP_DEVINFO_DATA)]
     setupapi.SetupDiGetDeviceInstanceIdA.restype = wintypes.BOOL
     setupapi.SetupDiGetDeviceInstanceIdA.argtypes = [ctypes.c_void_p, ctypes.POINTER(SP_DEVINFO_DATA), ctypes.c_char_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    setupapi.SetupDiOpenDevRegKey.restype = ctypes.c_void_p
+    setupapi.SetupDiOpenDevRegKey.argtypes = [ctypes.c_void_p, ctypes.POINTER(SP_DEVINFO_DATA), wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD]
     setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
     setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
+    return setupapi
 
-    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e96e-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
-    device = SP_DEVINFO_DATA()
-    device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
 
-    device_ids = []
+def _iter_monitor_devices(setupapi, devices):
+    """Yield (instance_id, SP_DEVINFO_DATA) for each monitor device."""
     index = 0
-    while setupapi.SetupDiEnumDeviceInfo(devices, index, ctypes.byref(device)):
-        buf = ctypes.create_string_buffer(256)
-        setupapi.SetupDiGetDeviceInstanceIdA(devices, ctypes.byref(device), buf, 256, None)
-        device_ids.append(buf.value.decode('utf-8'))
+    while True:
+        device = SP_DEVINFO_DATA()
+        device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
+        if not setupapi.SetupDiEnumDeviceInfo(devices, index, ctypes.byref(device)):
+            return
+        buf = ctypes.create_string_buffer(512)
+        if setupapi.SetupDiGetDeviceInstanceIdA(devices, ctypes.byref(device), buf, len(buf), None):
+            yield buf.value.decode("utf-8", errors="replace"), device
         index += 1
-    setupapi.SetupDiDestroyDeviceInfoList(devices)
-    return device_ids
+
+
+def _with_monitor_devices(callback):
+    setupapi = _setupapi()
+    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID(MONITOR_CLASS_GUID).bytes_le, None, None, DIGCF_PRESENT)
+    if not devices or devices == INVALID_HANDLE_VALUE:
+        return None
+    try:
+        return callback(setupapi, devices)
+    finally:
+        setupapi.SetupDiDestroyDeviceInfoList(devices)
+
+
+def get_active_monitor_device_ids():
+    """
+    Returns a list of DeviceIDs for currently active monitors.
+    """
+    result = _with_monitor_devices(
+        lambda setupapi, devices: [instance_id for instance_id, _ in _iter_monitor_devices(setupapi, devices)]
+    )
+    return result or []
+
+
+def _open_device_key(setupapi, devices, device, access):
+    hkey = setupapi.SetupDiOpenDevRegKey(devices, ctypes.byref(device), DICS_FLAG_GLOBAL, 0, DIREG_DEV, access)
+    if not hkey or hkey == INVALID_HANDLE_VALUE:
+        return None
+    return hkey
+
 
 def get_edid(device_id):
     """
     Reads the EDID for a given DeviceID from the registry using SetupAPI.
     """
-    setupapi = ctypes.windll.setupapi
-    class SP_DEVINFO_DATA(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD),
-            ("ClassGuid", ctypes.c_byte * 16),
-            ("DevInst", wintypes.DWORD),
-            ("Reserved", ctypes.c_void_p)
-        ]
-    setupapi.SetupDiGetClassDevsA.restype = ctypes.c_void_p
-    setupapi.SetupDiGetClassDevsA.argtypes = [ctypes.c_char_p, ctypes.c_char_p, wintypes.HWND, wintypes.DWORD]
-    setupapi.SetupDiEnumDeviceInfo.restype = wintypes.BOOL
-    setupapi.SetupDiEnumDeviceInfo.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(SP_DEVINFO_DATA)]
-    setupapi.SetupDiGetDeviceInstanceIdA.restype = wintypes.BOOL
-    setupapi.SetupDiGetDeviceInstanceIdA.argtypes = [ctypes.c_void_p, ctypes.POINTER(SP_DEVINFO_DATA), ctypes.c_char_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
-    setupapi.SetupDiOpenDevRegKey.restype = wintypes.HKEY
-    setupapi.SetupDiOpenDevRegKey.argtypes = [ctypes.c_void_p, ctypes.POINTER(SP_DEVINFO_DATA), wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD]
-    setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
-    setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
-
-    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e96e-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
-    device = SP_DEVINFO_DATA()
-    device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
-
-    edid_bytes = None
-    index = 0
-    while setupapi.SetupDiEnumDeviceInfo(devices, index, ctypes.byref(device)):
-        buf = ctypes.create_string_buffer(256)
-        setupapi.SetupDiGetDeviceInstanceIdA(devices, ctypes.byref(device), buf, 256, None)
-        if buf.value.decode('utf-8') == device_id:
-            hkey = setupapi.SetupDiOpenDevRegKey(devices, ctypes.byref(device), 1, 0, 1, 0x20019) # KEY_READ
-            if hkey and hkey != -1:
-                try:
-                    val, _ = winreg.QueryValueEx(hkey, "EDID")
-                    edid_bytes = val
-                except:
-                    pass
+    def read(setupapi, devices):
+        for instance_id, device in _iter_monitor_devices(setupapi, devices):
+            if instance_id != device_id:
+                continue
+            hkey = _open_device_key(setupapi, devices, device, KEY_READ)
+            if hkey is None:
+                return None
+            try:
+                value, _ = winreg.QueryValueEx(hkey, "EDID")
+                return bytes(value)
+            except OSError:
+                return None
+            finally:
                 winreg.CloseKey(hkey)
-            break
-        index += 1
-    setupapi.SetupDiDestroyDeviceInfoList(devices)
-    return edid_bytes
+        return None
+
+    return _with_monitor_devices(read)
 
 def set_edid(device_id, edid_bytes):
     """
     Writes the EDID to the registry for the given DeviceID using SetupAPI.
     Requires Administrator privileges.
     """
-    setupapi = ctypes.windll.setupapi
-    class SP_DEVINFO_DATA(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD),
-            ("ClassGuid", ctypes.c_byte * 16),
-            ("DevInst", wintypes.DWORD),
-            ("Reserved", ctypes.c_void_p)
-        ]
-    setupapi.SetupDiGetClassDevsA.restype = ctypes.c_void_p
-    setupapi.SetupDiGetClassDevsA.argtypes = [ctypes.c_char_p, ctypes.c_char_p, wintypes.HWND, wintypes.DWORD]
-    setupapi.SetupDiEnumDeviceInfo.restype = wintypes.BOOL
-    setupapi.SetupDiEnumDeviceInfo.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(SP_DEVINFO_DATA)]
-    setupapi.SetupDiGetDeviceInstanceIdA.restype = wintypes.BOOL
-    setupapi.SetupDiGetDeviceInstanceIdA.argtypes = [ctypes.c_void_p, ctypes.POINTER(SP_DEVINFO_DATA), ctypes.c_char_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
-    setupapi.SetupDiOpenDevRegKey.restype = wintypes.HKEY
-    setupapi.SetupDiOpenDevRegKey.argtypes = [ctypes.c_void_p, ctypes.POINTER(SP_DEVINFO_DATA), wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD]
-    setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
-    setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
+    if not edid_bytes or len(edid_bytes) < 128:
+        return False
 
-    devices = setupapi.SetupDiGetClassDevsA(uuid.UUID("{4d36e96e-e325-11ce-bfc1-08002be10318}").bytes_le, None, None, 2)
-    device = SP_DEVINFO_DATA()
-    device.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
-
-    success = False
-    index = 0
-    while setupapi.SetupDiEnumDeviceInfo(devices, index, ctypes.byref(device)):
-        buf = ctypes.create_string_buffer(256)
-        setupapi.SetupDiGetDeviceInstanceIdA(devices, ctypes.byref(device), buf, 256, None)
-        if buf.value.decode('utf-8') == device_id:
-            hkey = setupapi.SetupDiOpenDevRegKey(devices, ctypes.byref(device), 1, 0, 1, 0x20006) # KEY_WRITE
-            if hkey and hkey != -1:
-                winreg.SetValueEx(hkey, "EDID", 0, winreg.REG_BINARY, edid_bytes)
+    def write(setupapi, devices):
+        for instance_id, device in _iter_monitor_devices(setupapi, devices):
+            if instance_id != device_id:
+                continue
+            hkey = _open_device_key(setupapi, devices, device, KEY_WRITE)
+            if hkey is None:
+                return False
+            try:
+                winreg.SetValueEx(hkey, "EDID", 0, winreg.REG_BINARY, bytes(edid_bytes))
+                return True
+            except OSError:
+                return False
+            finally:
                 winreg.CloseKey(hkey)
-                success = True
-            break
-        index += 1
-    setupapi.SetupDiDestroyDeviceInfoList(devices)
-    return success
+        return False
+
+    return bool(_with_monitor_devices(write))
+
+
+def match_monitor_instance(display_device_id, active_ids):
+    """
+    Map an EnumDisplayDevices monitor ID (MONITOR\\<HWID>\\...) to a SetupAPI
+    instance ID (DISPLAY\\<HWID>\\...). Returns None when the match is
+    ambiguous so callers never write to the wrong monitor.
+    """
+    if not active_ids:
+        return None
+    hw_id = None
+    if display_device_id and "\\" in display_device_id:
+        parts = display_device_id.split("\\")
+        if len(parts) > 1 and parts[1]:
+            hw_id = parts[1].upper()
+    if hw_id:
+        matches = [aid for aid in active_ids if aid.upper().startswith(f"DISPLAY\\{hw_id}\\")]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+    if len(active_ids) == 1:
+        return active_ids[0]
+    return None
+
+
+def _descriptor_slot_for_injection(edid):
+    """Pick a descriptor slot that is safe to overwrite, or None."""
+    candidates = []
+    for offset in DESCRIPTOR_OFFSETS[1:]:  # Slot 54 is the preferred native timing.
+        block = edid[offset:offset + 18]
+        is_display_descriptor = block[0] == 0 and block[1] == 0
+        if not is_display_descriptor:
+            continue  # A real detailed timing; never overwrite.
+        tag = block[3]
+        if tag in PROTECTED_TAGS:
+            continue
+        if all(byte == 0 for byte in block):
+            rank = 0
+        elif tag in REPLACEABLE_TAGS:
+            rank = 1 + REPLACEABLE_TAGS.index(tag)
+        else:
+            rank = 10
+        candidates.append((rank, offset))
+    if not candidates:
+        return None
+    return min(candidates)[1]
+
 
 def inject_resolution(edid_bytes, width, height, hz):
     """
-    Injects the custom resolution into the first unused DTD slot.
-    An unused slot typically starts with [00 00 00] and isn't a display descriptor tag.
-    Returns the new EDID bytes or None if no slots available.
+    Injects the custom resolution into a descriptor slot that does not carry
+    the native timing, monitor name, or range limits.
+    Pass the monitor's original EDID so repeated injections replace the
+    previous custom mode instead of consuming further slots.
+    Returns the new EDID bytes or None if no safe slot is available.
     """
-    if len(edid_bytes) < 128:
+    if not edid_bytes or len(edid_bytes) < 128:
         return None
-        
+
     dtd = generate_cvt_rb(width, height, hz)
     edid = bytearray(edid_bytes)
-    
-    # Check DTD slots (offsets 54, 72, 90, 108)
-    injected = False
-    for offset in [54, 72, 90, 108]:
-        # If it's empty (all zeros) or we want to overwrite the last one
-        # A valid DTD must have a non-zero pixel clock (bytes 0-1)
-        if edid[offset] == 0x00 and edid[offset+1] == 0x00 and edid[offset+2] == 0x00:
-            # It's an empty slot, but wait, Display Descriptors also start with 00 00 00!
-            # Display descriptors (tags) start with 00 00 00 followed by a tag in byte 3.
-            # We can overwrite an empty slot if it exists. Actually, most EDIDs use all 4 slots.
-            # We will just overwrite the last slot (offset 108) assuming it's usually a standard timing or string descriptor we don't need for basic functioning.
-            pass
-            
-    # For a robust approach, we overwrite the 4th descriptor (offset 108)
-    # The first 1 or 2 are usually the native resolutions.
-    edid[108:126] = dtd
-    
+    offset = _descriptor_slot_for_injection(edid)
+    if offset is None:
+        return None
+    edid[offset:offset + 18] = dtd
     return fix_checksum(bytes(edid))
 
 def is_resolution_injected(edid_bytes, width, height, hz):
@@ -226,14 +299,13 @@ def is_resolution_injected(edid_bytes, width, height, hz):
     """
     if not edid_bytes or len(edid_bytes) < 128:
         return False
-        
-    dtd = generate_cvt_rb(width, height, hz)
-    
-    # Check DTD slots (offsets 54, 72, 90, 108)
-    for offset in [54, 72, 90, 108]:
-        if edid_bytes[offset:offset+18] == dtd:
+    try:
+        dtd = generate_cvt_rb(width, height, hz)
+    except EdidError:
+        return False
+    for offset in DESCRIPTOR_OFFSETS:
+        if bytes(edid_bytes[offset:offset+18]) == bytes(dtd):
             return True
-            
     return False
 
 if __name__ == "__main__":
@@ -244,9 +316,5 @@ if __name__ == "__main__":
         if edid:
             print(f"Read EDID ({len(edid)} bytes). Checksum: {edid[127]}")
             new_edid = inject_resolution(edid, 1440, 1080, 144)
-            print(f"New EDID checksum: {new_edid[127]}")
-            
-            # Uncomment to test write
-            # if ctypes.windll.shell32.IsUserAnAdmin():
-            #     set_edid(devs[0], new_edid)
-            #     print("Wrote new EDID")
+            if new_edid:
+                print(f"New EDID checksum: {new_edid[127]}")

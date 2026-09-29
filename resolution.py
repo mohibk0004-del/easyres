@@ -215,11 +215,15 @@ def set_resolution(width, height, hz=None, device_name=None):
 
 import subprocess
 
+from sysutil import pnputil_path
+
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 def get_hardware_monitors():
     # Use pnputil to get hardware level monitor devices
     try:
-        result = subprocess.run(["pnputil", "/enum-devices", "/class", "Monitor", "/connected"], 
-                                capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        result = subprocess.run([pnputil_path(), "/enum-devices", "/class", "Monitor", "/connected"],
+                                capture_output=True, text=True, creationflags=_NO_WINDOW, timeout=20)
         monitors = []
         current_mon = {}
         for line in result.stdout.splitlines():
@@ -241,16 +245,22 @@ def get_hardware_monitors():
             monitors.append(current_mon)
             
         return monitors
-    except Exception as e:
+    except Exception:
         return []
 
 def set_hardware_monitor_state(instance_id, enable):
-    # Requires Admin privileges
+    """Enable or disable a monitor device. Requires Admin privileges.
+
+    Returns True only when pnputil reports success (3010 = success, reboot
+    required).
+    """
+    if not instance_id or not isinstance(instance_id, str):
+        return False
     try:
-        cmd = ["pnputil", "/enable-device" if enable else "/disable-device", instance_id]
-        subprocess.run(cmd, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        return True
-    except Exception as e:
+        cmd = [pnputil_path(), "/enable-device" if enable else "/disable-device", instance_id]
+        result = subprocess.run(cmd, capture_output=True, creationflags=_NO_WINDOW, timeout=30)
+        return result.returncode in (0, 3010)
+    except Exception:
         return False
 
 def reset_resolution(device_name=None):
