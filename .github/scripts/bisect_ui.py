@@ -15,7 +15,64 @@ STEPS = [
     "plain", "styled", "toggle", "action_button", "icon_button", "status_item", "mode_tile",
     "sidebar", "segmented", "toast", "list_group", "sheet_host",
     "page_switch", "page_custom", "page_monitors", "page_hotkeys", "page_settings", "app_window",
+    "aw_no_native_event", "aw_no_tray", "aw_no_event_filter", "aw_no_hotkeys", "aw_no_frameless",
+    "aw_no_shortcuts", "aw_all_off",
 ]
+
+AW_PATCHES = {
+    "aw_no_native_event": ["native_event"],
+    "aw_no_tray": ["tray"],
+    "aw_no_event_filter": ["event_filter"],
+    "aw_no_hotkeys": ["hotkeys"],
+    "aw_no_frameless": ["frameless"],
+    "aw_no_shortcuts": ["shortcuts"],
+    "aw_all_off": ["native_event", "tray", "event_filter", "hotkeys", "frameless", "shortcuts"],
+}
+
+
+def patch_app_window(features):
+    import ui.app_window as aw
+    from PyQt6.QtWidgets import QApplication, QMainWindow
+    if "native_event" in features:
+        del aw.AppWindow.nativeEvent
+    if "tray" in features:
+        class FakeTray:
+            def showMessage(self, *a, **k):
+                pass
+
+            def hide(self):
+                pass
+
+            def setIcon(self, *a):
+                pass
+
+        def build_tray(self):
+            self.tray_icon = FakeTray()
+            from PyQt6.QtWidgets import QMenu
+            self.tray_menu = QMenu()
+        aw.AppWindow._build_tray = build_tray
+        aw.AppWindow._set_tray_icon = lambda self: None
+    if "event_filter" in features:
+        QApplication.installNativeEventFilter = lambda self, f: None
+    if "hotkeys" in features:
+        from ui.controller import AppController
+        AppController.register_hotkeys = lambda self: None
+    if "frameless" in features:
+        original = QMainWindow.setWindowFlags
+
+        def set_flags(self, flags):
+            return original(self, aw.Qt.WindowType.Window)
+        aw.AppWindow.setWindowFlags = set_flags
+    if "shortcuts" in features:
+        class NoShortcut:
+            def __init__(self, *a, **k):
+                from PyQt6.QtCore import QObject, pyqtSignal
+
+                class S(QObject):
+                    activated = pyqtSignal()
+                self._s = S()
+                self.activated = self._s.activated
+        aw.QShortcut = NoShortcut
 
 
 def run_step(step):
@@ -93,7 +150,8 @@ def run_step(step):
         cls = {"switch": "SwitchPage", "custom": "CustomPage", "monitors": "MonitorsPage",
                "hotkeys": "HotkeysPage", "settings": "SettingsPage"}[name]
         layout.addWidget(getattr(module, cls)(controller, FakeWindow()))
-    elif step == "app_window":
+    elif step == "app_window" or step in AW_PATCHES:
+        patch_app_window(AW_PATCHES.get(step, []))
         from ui.app_window import AppWindow
         host = AppWindow()
 
