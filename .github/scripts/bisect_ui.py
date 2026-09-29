@@ -34,7 +34,7 @@ def patch_app_window(features):
     import ui.app_window as aw
     from PyQt6.QtWidgets import QApplication, QMainWindow
     if "native_event" in features:
-        del aw.AppWindow.nativeEvent
+        aw.NO_NATIVE_EVENT = True
     if "tray" in features:
         class FakeTray:
             def showMessage(self, *a, **k):
@@ -76,6 +76,8 @@ def patch_app_window(features):
 
 
 def run_step(step):
+    # If the step hangs, dump every thread's stack and exit.
+    faulthandler.dump_traceback_later(40, exit=True)
     from PyQt6.QtCore import QTimer
     from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
     app = QApplication(sys.argv)
@@ -159,6 +161,15 @@ def run_step(step):
     host.resize(900, 600)
     host.show()
     print(f"{step}: shown", flush=True)
+    ticks = []
+
+    def tick():
+        ticks.append(1)
+        print(f"{step}: event loop tick {len(ticks)}", flush=True)
+
+    heartbeat = QTimer()
+    heartbeat.timeout.connect(tick)
+    heartbeat.start(500)
     QTimer.singleShot(1500, app.quit)
     app.exec()
     print(f"{step}: OK", flush=True)

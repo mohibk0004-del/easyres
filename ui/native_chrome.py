@@ -113,14 +113,15 @@ def _frame_thickness(hwnd):
         return user32.GetSystemMetrics(SM_CXSIZEFRAME) + user32.GetSystemMetrics(SM_CXPADDEDBORDER)
 
 
-def handle(window, message):
-    """Process a native message for `window`.
+def handle_msg(window, msg):
+    """Process a Win32 MSG addressed to `window` (from an application-level
+    native event filter; see ChromeEventFilter).
 
-    `window` provides: native_hit_test(QPoint) -> "client" | "caption" | "max",
-    is_maximized(), set_max_hover(bool), press_max(), on_display_change().
+    `window` provides: native_chrome (bool), resize_border(),
+    native_hit_test(QPoint) -> "client" | "caption" | "max",
+    set_max_hover(bool), press_max(), on_display_change().
     Returns (handled, result).
     """
-    msg = wintypes.MSG.from_address(int(message))
     kind = msg.message
 
     if kind == WM_NCCALCSIZE and window.native_chrome:

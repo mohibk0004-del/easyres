@@ -43,6 +43,8 @@ def trace(message):
     """Startup breadcrumbs for diagnosing crashes (EASYRES_TRACE=1)."""
     if os.environ.get("EASYRES_TRACE"):
         print(f"[trace] {message}", flush=True)
+
+
 PAGE_SWITCH, PAGE_CUSTOM, PAGE_MONITORS, PAGE_HOTKEYS, PAGE_SETTINGS = range(5)
 
 
@@ -63,6 +65,33 @@ class HotkeyEventFilter(QAbstractNativeEventFilter):
             self.callbacks[msg.wParam]()
             return True, 0
         return False, 0
+
+
+class ChromeEventFilter(QAbstractNativeEventFilter):
+    """Routes the main window's Win32 messages to ui.native_chrome.
+
+    Messages are ignored until attach() is given the window handle after the
+    first show, so nothing runs during native window creation.
+    """
+
+    def __init__(self, window):
+        super().__init__()
+        self.window = window
+        self.hwnd = None
+
+    def attach(self, hwnd):
+        self.hwnd = hwnd
+
+    def nativeEventFilter(self, eventType, message):
+        if self.hwnd is None:
+            return False, 0
+        event_type = eventType.encode() if isinstance(eventType, str) else bytes(eventType)
+        if event_type not in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
+            return False, 0
+        msg = wintypes.MSG.from_address(int(message))
+        if msg.hWnd is None or int(msg.hWnd) != self.hwnd:
+            return False, 0
+        return native_chrome.handle_msg(self.window, msg)
 
 
 class TransitionOverlay(QWidget):
@@ -195,6 +224,8 @@ class AppWindow(QMainWindow):
             HOTKEY_ID_RESTORE: lambda: c.reset_res(enable_monitors=False),
         })
         app.installNativeEventFilter(self.hotkey_filter)
+        self.chrome_filter = ChromeEventFilter(self)
+        app.installNativeEventFilter(self.chrome_filter)
         c.register_hotkeys()
         c.refresh()
         c.refresh_monitors()
@@ -727,6 +758,8 @@ class AppWindow(QMainWindow):
         trace("showEvent: installing native chrome")
         self.native_chrome = native_chrome.install(self, t.BORDER_SUBTLE)
         trace(f"showEvent: native chrome = {self.native_chrome}")
+        if not NO_NATIVE_EVENT:
+            self.chrome_filter.attach(int(self.winId()))
         self.grip.setVisible(not self.native_chrome)
         self.root.setFocus(Qt.FocusReason.OtherFocusReason)
         self._sync_status()
@@ -735,15 +768,9 @@ class AppWindow(QMainWindow):
             self._fade = motion.tween(self, 0.0, 1.0, t.MOTION_FADE, self.setWindowOpacity)
         trace("showEvent: end")
 
-    def nativeEvent(self, eventType, message):
-        if NO_NATIVE_EVENT:
-            return super().nativeEvent(eventType, message)
-        event_type = eventType.encode() if isinstance(eventType, str) else bytes(eventType)
-        if event_type in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
-            handled, result = native_chrome.handle(self, message)
-            if handled:
-                return True, result
-        return super().nativeEvent(eventType, message)
+    # Note: never override QWidget.nativeEvent here. With PyQt6 on Windows the
+    # override itself crashes (access violation) during the first show; window
+    # messages are handled by ChromeEventFilter at the application level.
 
     def resize_border(self):
         return t.RESIZE_BORDER

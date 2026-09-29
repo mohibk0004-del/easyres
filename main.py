@@ -82,6 +82,8 @@ def arm_smoke_test(app, window):
     if not seconds:
         return
     from PyQt6.QtCore import QTimer
+    # If the app hangs instead of quitting, dump all stacks to the log.
+    faulthandler.dump_traceback_later(float(seconds) + 30, exit=True)
 
     def finish():
         print(f"SMOKE OK visible={window.isVisible()} native_chrome={window.native_chrome} "
