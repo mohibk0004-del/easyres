@@ -1,12 +1,15 @@
 import sys
 import os
 import ctypes
+import faulthandler
 import subprocess
+import traceback
 
 from PyQt6.QtWidgets import QApplication
 
 ERROR_ALREADY_EXISTS = 183
 SINGLE_INSTANCE_MUTEX = "Local\\EasyRes_SingleInstance"
+SMOKE_ENV = "EASYRES_SMOKE_SECONDS"
 
 
 def is_admin():
@@ -23,16 +26,42 @@ def log_dir():
     return path
 
 
+def log_path():
+    return os.path.join(log_dir(), "crash.log")
+
+
 def open_crash_log():
     """Redirect stdout/stderr to a per-user log (never the working dir,
-    which is System32 for an elevated process)."""
+    which is System32 for an elevated process), and record native crashes."""
     try:
-        log = open(os.path.join(log_dir(), "crash.log"), "w", encoding="utf-8", buffering=1)
+        log = open(log_path(), "w", encoding="utf-8", buffering=1)
     except OSError:
         return None
     sys.stderr = log
     sys.stdout = log
+    faulthandler.enable(log)
     return log
+
+
+def install_excepthook():
+    """PyQt6 aborts the whole process on an unhandled exception inside a Qt
+    callback unless a custom excepthook is set. Log it and keep running."""
+    def hook(exc_type, exc, tb):
+        traceback.print_exception(exc_type, exc, tb)
+        if sys.stderr:
+            sys.stderr.flush()
+    sys.excepthook = hook
+
+
+def show_startup_error():
+    try:
+        from PyQt6.QtWidgets import QMessageBox
+        if QApplication.instance() is None:
+            QApplication(sys.argv)
+        QMessageBox.critical(None, "EasyRes couldn't start",
+                             f"EasyRes hit an error while starting.\n\nDetails were saved to:\n{log_path()}")
+    except Exception:
+        pass
 
 
 def relaunch_as_admin():
@@ -47,12 +76,29 @@ def relaunch_as_admin():
     ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
 
 
+def arm_smoke_test(app, window):
+    """CI: quit after N seconds and report whether the window came up."""
+    seconds = os.environ.get(SMOKE_ENV)
+    if not seconds:
+        return
+    from PyQt6.QtCore import QTimer
+
+    def finish():
+        print(f"SMOKE OK visible={window.isVisible()} native_chrome={window.native_chrome} "
+              f"size={window.width()}x{window.height()}", flush=True)
+        window._quit_app()
+
+    QTimer.singleShot(int(float(seconds) * 1000), finish)
+
+
 def main():
     if not is_admin():
         relaunch_as_admin()
         sys.exit(0)
 
     log = open_crash_log()
+    install_excepthook()
+    print(f"EasyRes starting (frozen={getattr(sys, 'frozen', False)}, python={sys.version.split()[0]})", flush=True)
     try:
         from PyQt6.QtWidgets import QMessageBox
         from theme.fonts import load_app_font
@@ -77,10 +123,12 @@ def main():
         from ui.app_window import AppWindow
         window = AppWindow()
         window.show()
+        print("Window shown", flush=True)
+        arm_smoke_test(app, window)
         sys.exit(app.exec())
     except Exception:
-        import traceback
         traceback.print_exc()
+        show_startup_error()
         sys.exit(1)
     finally:
         if log:
