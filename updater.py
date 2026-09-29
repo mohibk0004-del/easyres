@@ -22,7 +22,7 @@ from sysutil import powershell_path
 RELEASE_API_URL = "https://api.github.com/repos/mohibk0004-del/easyres/releases/latest"
 USER_AGENT = "EasyRes-Updater"
 ALLOWED_DOWNLOAD_HOSTS = ("github.com", "githubusercontent.com")
-CURRENT_VERSION = "2.1.8"
+CURRENT_VERSION = "2.2.0"
 
 
 class UpdateError(RuntimeError):
