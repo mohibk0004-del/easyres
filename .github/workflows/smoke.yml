@@ -30,10 +30,6 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest discover -s tests -v
 
-      - name: Show each UI piece (unpackaged)
-        continue-on-error: true
-        run: python .github/scripts/bisect_ui.py
-
       - name: Build EasyRes.exe
         shell: bash
         run: |
@@ -48,11 +44,9 @@ jobs:
           $log = Join-Path $env:LOCALAPPDATA "EasyRes\crash.log"
           $variants = [ordered]@{
             "default"          = @{}
-            "no-fade"          = @{ EASYRES_NO_FADE = "1" }
             "qt-frame"         = @{ EASYRES_QT_FRAME = "1" }
-            "no-native-event"  = @{ EASYRES_QT_FRAME = "1"; EASYRES_NO_NATIVE_EVENT = "1" }
           }
-          $defaultOk = $false
+          $allOk = $true
           foreach ($name in $variants.Keys) {
             foreach ($k in @("EASYRES_NO_FADE", "EASYRES_QT_FRAME", "EASYRES_NO_NATIVE_EVENT")) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
             foreach ($pair in $variants[$name].GetEnumerator()) { Set-Item "Env:$($pair.Key)" $pair.Value }
@@ -64,7 +58,7 @@ jobs:
             $ok = $finished -and $p.ExitCode -eq 0 -and (Test-Path $log) -and (Select-String -Path $log -Pattern "SMOKE OK" -Quiet)
             "===== $name : $result : ok=$ok ====="
             if (Test-Path $log) { Get-Content $log } else { "(no crash.log)" }
-            if ($name -eq "default") { $defaultOk = $ok }
+            if (-not $ok) { $allOk = $false }
             Start-Sleep -Seconds 2
           }
-          if (-not $defaultOk) { exit 1 }
+          if (-not $allOk) { exit 1 }

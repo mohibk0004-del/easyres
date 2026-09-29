@@ -226,6 +226,8 @@ class AppWindow(QMainWindow):
         app.installNativeEventFilter(self.hotkey_filter)
         self.chrome_filter = ChromeEventFilter(self)
         app.installNativeEventFilter(self.chrome_filter)
+        # Windows sign-out / shutdown: never block it with the close prompt.
+        app.commitDataRequest.connect(self._on_session_end)
         c.register_hotkeys()
         c.refresh()
         c.refresh_monitors()
@@ -839,6 +841,10 @@ class AppWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Close / quit
     # ------------------------------------------------------------------
+    def _on_session_end(self, _manager=None):
+        self._quitting = True
+        self.controller.unregister_hotkeys()
+
     def _quit_app(self):
         self._quitting = True
         self.controller.unregister_hotkeys()
