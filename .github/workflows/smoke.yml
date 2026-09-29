@@ -30,6 +30,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest discover -s tests -v
 
+      - name: Show each UI piece (unpackaged)
+        continue-on-error: true
+        run: python .github/scripts/bisect_ui.py
+
       - name: Build EasyRes.exe
         shell: bash
         run: |
